@@ -9,6 +9,7 @@ from utils.option_utils import (
     place_bear_spread_with_oco
 )
 from utils.common_utils import is_dry_run, has_reached_trade_limit
+from utils.excel_utils import save_trade_to_excel  # Add this import
 import json
 import os
 
@@ -28,6 +29,8 @@ def save_trade_to_log(trade_info):
     log_data.append(trade_info)
     with open(TRADE_LOG_FILE, 'w') as f:
         json.dump(log_data, f, indent=2)
+    # --- Excel logging ---
+    save_trade_to_excel(trade_info)
 
 def is_time_between(start, end):
     now = datetime.now().time()
