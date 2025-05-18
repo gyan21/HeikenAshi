@@ -2,7 +2,7 @@ from ib_insync import Option, Contract, ComboLeg, Order, Stock
 import numpy as np
 import asyncio
 from datetime import datetime
-from main import log_trade_close  # Ensure this import is correct
+from main import log_trade_close, load_open_trades  # Ensure these imports are correct
 
 def find_option_by_delta(ib, symbol, expiry, right, target_delta=0.20, tolerance=0.05):
     # right: 'P' for put, 'C' for call
@@ -98,6 +98,23 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     print(f"📤 Placed spread SELL {sell_strike}C / BUY {buy_strike}C @ {mid_credit}")
     print("🎯 Take-profit set at 0.05")
 
+    # Log the open trade with all necessary info for resuming
+    log_entry = {
+        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
+        "type": "bear",
+        "symbol": symbol,
+        "sell_strike": sell_strike,
+        "buy_strike": buy_strike,
+        "expiry": expiry,
+        "open_price": mid_credit,
+        "quantity": quantity,
+        "close_reason": "Pending TP/OCO",
+        "status": "Open"
+    }
+    if trade_log_callback:
+        trade_log_callback(log_entry)
+
     async def monitor_stop_trigger():
         print(f"📡 Watching 1-min close for stop above {sell_strike} and theta diff OCO")
         while True:
@@ -185,21 +202,6 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
 
     asyncio.create_task(monitor_stop_trigger())
 
-    log_entry = {
-        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
-        "type": "bull",  # or "bear"
-        "symbol": symbol,
-        "sell_strike": sell_strike,
-        "buy_strike": buy_strike,
-        "expiry": expiry,
-        "open_price": mid_credit,
-        "quantity": quantity,
-        "close_reason": "Pending TP/OCO",
-        "status": "Open"
-    }
-    if trade_log_callback:
-        trade_log_callback(log_entry)
     return {
         "spread": f"{symbol}_{sell_strike}_{buy_strike}_{expiry}",
         "order_id": parent_id,
@@ -265,6 +267,23 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     tp_trade = ib.placeOrder(combo, take_profit)
     print(f"📤 Placed spread SELL {sell_strike}P / BUY {buy_strike}P @ {mid_credit}")
     print("🎯 Take-profit set at 0.05")
+
+    # Log the open trade with all necessary info for resuming
+    log_entry = {
+        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
+        "type": "bull",
+        "symbol": symbol,
+        "sell_strike": sell_strike,
+        "buy_strike": buy_strike,
+        "expiry": expiry,
+        "open_price": mid_credit,
+        "quantity": quantity,
+        "close_reason": "Pending TP/OCO",
+        "status": "Open"
+    }
+    if trade_log_callback:
+        trade_log_callback(log_entry)
 
     async def monitor_stop_trigger():
         print(f"📡 Watching 1-min close for stop under {sell_strike} and theta diff OCO")
@@ -353,24 +372,30 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
 
     asyncio.create_task(monitor_stop_trigger())
 
-    log_entry = {
-        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
-        "type": "bull",  # or "bear"
-        "symbol": symbol,
-        "sell_strike": sell_strike,
-        "buy_strike": buy_strike,
-        "expiry": expiry,
-        "open_price": mid_credit,
-        "quantity": quantity,
-        "close_reason": "Pending TP/OCO",
-        "status": "Open"
-    }
-    if trade_log_callback:
-        trade_log_callback(log_entry)
     return {
         "spread": f"{symbol}_{sell_strike}_{buy_strike}_{expiry}",
         "order_id": parent_id,
         "credit": mid_credit,
         "quantity": quantity
     }
+
+async def resume_monitoring_open_trades(ib, trade_log_callback=None):
+    open_trades = load_open_trades()
+    for trade in open_trades:
+        symbol = trade["symbol"]
+        sell_strike = float(trade["sell_strike"])
+        buy_strike = float(trade["buy_strike"])
+        expiry = trade["expiry"]
+        quantity = trade["quantity"]
+        open_price = trade["open_price"]
+        spread_type = trade.get("type")
+        if spread_type == "bull":
+            place_bull_spread_with_oco(
+                ib, symbol, (sell_strike, buy_strike), expiry,
+                open_price * quantity, trade_log_callback
+            )
+        elif spread_type == "bear":
+            place_bear_spread_with_oco(
+                ib, symbol, (sell_strike, buy_strike), expiry,
+                open_price * quantity, trade_log_callback
+            )
