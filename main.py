@@ -29,8 +29,8 @@ def save_trade_to_log(trade_info):
     log_data.append(trade_info)
     with open(TRADE_LOG_FILE, 'w') as f:
         json.dump(log_data, f, indent=2)
-    # --- Excel logging ---
-    save_trade_to_excel(trade_info)
+    # Remove or comment out this line:
+    # save_trade_to_excel(trade_info)
 
 def is_time_between(start, end):
     now = datetime.now().time()
@@ -104,6 +104,9 @@ def log_trade_close(trade, open_price, close_price, quantity, trade_type, status
         "quantity": quantity
     }
     save_trade_to_log(log_entry)
+    # Only log closed trades to Excel
+    from utils.excel_utils import save_trade_to_excel
+    save_trade_to_excel(log_entry)
 
 def get_win_rate_and_position_scale(trade_log_file=TRADE_LOG_FILE):
     now = datetime.now()

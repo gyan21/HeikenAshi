@@ -399,3 +399,21 @@ async def resume_monitoring_open_trades(ib, trade_log_callback=None):
                 ib, symbol, (sell_strike, buy_strike), expiry,
                 open_price * quantity, trade_log_callback
             )
+
+def log_trade_close(trade, open_price, close_price, quantity, trade_type, status, reason):
+    profit = (close_price - open_price) * quantity if trade_type == "bull" else (open_price - close_price) * quantity
+    profit_pct = (profit / (open_price * quantity)) * 100 if open_price else 0
+    log_entry = {
+        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "spread": trade.get("spread"),
+        "open_price": open_price,
+        "close_price": close_price,
+        "profit": profit,
+        "profit_pct": profit_pct,
+        "status": status,
+        "close_reason": reason,
+        "quantity": quantity
+    }
+    # Only log closed trades to Excel
+    from utils.excel_utils import save_trade_to_excel
+    save_trade_to_excel(log_entry)
