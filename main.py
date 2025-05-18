@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from utils.ibkr_client import IBKRClient
 from utils.heikin_ashi import get_regular_and_heikin_ashi_close
 from utils.option_utils import (
@@ -40,6 +40,9 @@ async def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_cal
         print("Not in trading window.")
         return
 
+    win_rate, position_scale = get_win_rate_and_position_scale()
+    print(f"Win rate (last 2 weeks): {win_rate:.1f}%. Position scale: {position_scale*100:.0f}% of account value.")
+
     regular_close, ha_close = get_regular_and_heikin_ashi_close(ib, symbol)
     print(f"Regular close: {regular_close}, Heikin Ashi close: {ha_close}")
 
@@ -55,7 +58,10 @@ async def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_cal
             return
         sell_strike = option.strike
         buy_strike = sell_strike - 5
-        place_bull_spread_with_oco(ib, symbol, (sell_strike, buy_strike), expiry, account_value, trade_log_callback)
+        place_bull_spread_with_oco(
+            ib, symbol, (sell_strike, buy_strike), expiry,
+            account_value * position_scale, trade_log_callback
+        )
     elif regular_close < ha_close:
         # Bear case: Sell CALL spread
         option = find_option_by_delta(ib, symbol, expiry, 'C', target_delta=0.20)
@@ -68,9 +74,56 @@ async def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_cal
             return
         sell_strike = option.strike
         buy_strike = sell_strike + 5
-        place_bear_spread_with_oco(ib, symbol, (sell_strike, buy_strike), expiry, account_value, trade_log_callback)
+        place_bear_spread_with_oco(
+            ib, symbol, (sell_strike, buy_strike), expiry,
+            account_value * position_scale, trade_log_callback
+        )
     else:
         print("No clear bull or bear case.")
+
+def log_trade_close(trade, open_price, close_price, quantity, trade_type, status, reason):
+    profit = (close_price - open_price) * quantity if trade_type == "bull" else (open_price - close_price) * quantity
+    profit_pct = (profit / (open_price * quantity)) * 100 if open_price else 0
+    log_entry = {
+        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "spread": trade.get("spread"),
+        "open_price": open_price,
+        "close_price": close_price,
+        "profit": profit,
+        "profit_pct": profit_pct,
+        "status": status,
+        "close_reason": reason,
+        "quantity": quantity
+    }
+    save_trade_to_log(log_entry)
+
+def get_win_rate_and_position_scale(trade_log_file=TRADE_LOG_FILE):
+    now = datetime.now()
+    two_weeks_ago = now - timedelta(days=14)
+    wins = 0
+    total = 0
+
+    if not os.path.exists(trade_log_file):
+        return 0.0, 0.02
+
+    with open(trade_log_file, 'r') as f:
+        trades = json.load(f)
+        for trade in trades:
+            try:
+                trade_date = datetime.strptime(trade.get("date", ""), "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                continue
+            if trade_date < two_weeks_ago:
+                continue
+            if trade.get("status", "").lower().startswith("exited"):
+                total += 1
+                profit = trade.get("profit", None)
+                if profit is not None and profit > 0:
+                    wins += 1
+
+    win_rate = (wins / total) * 100 if total > 0 else 0.0
+    position_scale = 0.03 if win_rate > 70 else 0.02
+    return win_rate, position_scale
 
 async def main():
     if is_dry_run():
