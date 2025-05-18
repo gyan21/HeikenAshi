@@ -14,10 +14,9 @@ def calculate_heikin_ashi(candles):
         ha.append(type('Bar', (object,), dict(open=ha_open, close=ha_close, high=ha_high, low=ha_low)))
     return ha
 
-def is_bull_case(ib: IB) -> bool:
-    contract = Stock('SPY', 'SMART', 'USD')
+def get_regular_and_heikin_ashi_close(ib: IB, symbol: str):
+    contract = Stock(symbol, 'SMART', 'USD')
     ib.qualifyContracts(contract)
-
     bars = ib.reqHistoricalData(
         contract,
         endDateTime=datetime.now().strftime("%Y%m%d %H:%M:%S"),
@@ -27,10 +26,7 @@ def is_bull_case(ib: IB) -> bool:
         useRTH=False,
         formatDate=1
     )
-
     if not bars or len(bars) < 2:
         raise Exception("Historical bars could not be fetched.")
-
     ha = calculate_heikin_ashi(bars)
-    print(f"Regular Close: {bars[-1].close}, Heikin Ashi Close: {ha[-1].close}")
-    return bars[-1].close > ha[-1].close
+    return bars[-1].close, ha[-1].close

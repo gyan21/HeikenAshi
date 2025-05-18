@@ -1,9 +1,14 @@
 import asyncio
+from datetime import datetime, time
 from utils.ibkr_client import IBKRClient
-from utils.heikin_ashi import is_bull_case
-from utils.option_utils import place_bull_spread_with_oco
+from utils.heikin_ashi import get_regular_and_heikin_ashi_close
+from utils.option_utils import (
+    find_option_by_delta,
+    get_option_iv,
+    place_bull_spread_with_oco,
+    place_bear_spread_with_oco
+)
 from utils.common_utils import is_dry_run, has_reached_trade_limit
-from datetime import datetime
 import json
 import os
 
@@ -19,15 +24,61 @@ def save_trade_to_log(trade_info):
     with open(TRADE_LOG_FILE, 'w') as f:
         json.dump(log_data, f, indent=2)
 
+def is_time_between(start, end):
+    now = datetime.now().time()
+    return start <= now <= end
+
+def should_trade_now():
+    return is_time_between(time(15, 45), time(16, 0))
+
+def is_iv_favorable(iv, iv_threshold=0.25):
+    # You may want to use a dynamic threshold based on historical IV
+    return iv is not None and iv > iv_threshold
+
+async def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_callback=None):
+    if not should_trade_now():
+        print("Not in trading window.")
+        return
+
+    regular_close, ha_close = get_regular_and_heikin_ashi_close(ib, symbol)
+    print(f"Regular close: {regular_close}, Heikin Ashi close: {ha_close}")
+
+    if regular_close > ha_close:
+        # Bull case: Sell PUT spread
+        option = find_option_by_delta(ib, symbol, expiry, 'P', target_delta=0.20)
+        if not option:
+            print("No suitable PUT option found near delta 0.20.")
+            return
+        iv = get_option_iv(ib, option)
+        if not is_iv_favorable(iv):
+            print("Volatility not favorable for selling PUT spread.")
+            return
+        sell_strike = option.strike
+        buy_strike = sell_strike - 5
+        place_bull_spread_with_oco(ib, symbol, (sell_strike, buy_strike), expiry, account_value, trade_log_callback)
+    elif regular_close < ha_close:
+        # Bear case: Sell CALL spread
+        option = find_option_by_delta(ib, symbol, expiry, 'C', target_delta=0.20)
+        if not option:
+            print("No suitable CALL option found near delta 0.20.")
+            return
+        iv = get_option_iv(ib, option)
+        if not is_iv_favorable(iv):
+            print("Volatility not favorable for selling CALL spread.")
+            return
+        sell_strike = option.strike
+        buy_strike = sell_strike + 5
+        place_bear_spread_with_oco(ib, symbol, (sell_strike, buy_strike), expiry, account_value, trade_log_callback)
+    else:
+        print("No clear bull or bear case.")
+
 async def main():
     if is_dry_run():
         print("🧪 Dry run mode — weekend detected. No trades will be placed.")
-        ib_client.disconnect()
         return
 
     if has_reached_trade_limit():
         print("⚠️ Trade limit reached for today. Exiting.")
-        ib_client.disconnect()
         return
 
     ib_client = IBKRClient()
@@ -35,50 +86,10 @@ async def main():
         print("❌ Could not connect to IBKR.")
         return
 
-    if not is_bull_case(ib_client):
-        print("📉 Bear case detected — skipping trade.")
-        ib_client.disconnect()
-        return
-
     symbol = 'SPY'
-    expiry = ib_client.find_expiry_for_next_day(symbol)
-
-    # === Spread 1: Based on today's low
-    today_low = int(ib_client.get_today_low(symbol))
-    spread_1 = (today_low, today_low - 5)
-
-    print(f"🚀 Placing spread 1 (based on low): {spread_1} expiring {expiry}")
-    trade_info_1 = place_bull_spread_with_oco(
-        ib=ib_client.ib,
-        symbol=symbol,
-        strike_pair=spread_1,
-        expiry=expiry,
-        account_value=ACCOUNT_VALUE,
-        trade_log_callback=save_trade_to_log
-    )
-
-    # === Spread 2: Based on delta ≈ 0.20
-    try:
-        delta_option = ib_client.find_put_with_delta(symbol, target_delta=0.20)
-        strike_2 = int(float(delta_option.strike))
-        spread_2 = (strike_2, strike_2 - 5)
-
-        print(f"🚀 Placing spread 2 (delta≈0.20): {spread_2} expiring {expiry}")
-        trade_info_2 = place_bull_spread_with_oco(
-            ib=ib_client.ib,
-            symbol=symbol,
-            strike_pair=spread_2,
-            expiry=expiry,
-            account_value=ACCOUNT_VALUE,
-            trade_log_callback=save_trade_to_log
-        )
-
-    except Exception as e:
-        print(f"⚠️ Failed to place spread 2 (delta ≈ 0.20): {e}")
-
-    while True:
-        await asyncio.sleep(60)
+    expiry = None  # Set this to the next expiry date string, e.g., '20240520'
+    await run_combined_strategy(ib_client, symbol, expiry, ACCOUNT_VALUE, save_trade_to_log)
+    ib_client.disconnect()
 
 if __name__ == "__main__":
     asyncio.run(main())
-#     ib_client.disconnect()
