@@ -125,6 +125,39 @@ def get_win_rate_and_position_scale(trade_log_file=TRADE_LOG_FILE):
     position_scale = 0.03 if win_rate > 70 else 0.02
     return win_rate, position_scale
 
+def load_open_trades(trade_log_file=TRADE_LOG_FILE):
+    open_trades = []
+    if not os.path.exists(trade_log_file):
+        return open_trades
+    with open(trade_log_file, 'r') as f:
+        trades = json.load(f)
+        for trade in trades:
+            if trade.get("status") == "Open":
+                open_trades.append(trade)
+    return open_trades
+
+async def resume_monitoring_open_trades(ib, trade_log_callback=None):
+    open_trades = load_open_trades()
+    for trade in open_trades:
+        symbol = trade["symbol"]
+        sell_strike = float(trade["sell_strike"])
+        buy_strike = float(trade["buy_strike"])
+        expiry = trade["expiry"]
+        quantity = trade["quantity"]
+        open_price = trade["open_price"]
+        spread_type = trade.get("type")
+        # Resume monitoring by calling the appropriate OCO function
+        if spread_type == "bull":
+            place_bull_spread_with_oco(
+                ib, symbol, (sell_strike, buy_strike), expiry,
+                open_price * quantity, trade_log_callback
+            )
+        elif spread_type == "bear":
+            place_bear_spread_with_oco(
+                ib, symbol, (sell_strike, buy_strike), expiry,
+                open_price * quantity, trade_log_callback
+            )
+
 async def main():
     if is_dry_run():
         print("🧪 Dry run mode — weekend detected. No trades will be placed.")
@@ -139,10 +172,10 @@ async def main():
         print("❌ Could not connect to IBKR.")
         return
 
-    symbol = 'SPY'
-    expiry = None  # Set this to the next expiry date string, e.g., '20240520'
-    await run_combined_strategy(ib_client, symbol, expiry, ACCOUNT_VALUE, save_trade_to_log)
-    ib_client.disconnect()
+    # Resume monitoring for open trades
+    await resume_monitoring_open_trades(ib_client, save_trade_to_log)
+
+    # ...then place new trades as usual...
 
 if __name__ == "__main__":
     asyncio.run(main())

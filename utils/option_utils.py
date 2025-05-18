@@ -188,10 +188,15 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     log_entry = {
         "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
+        "type": "bull",  # or "bear"
+        "symbol": symbol,
+        "sell_strike": sell_strike,
+        "buy_strike": buy_strike,
+        "expiry": expiry,
         "open_price": mid_credit,
+        "quantity": quantity,
         "close_reason": "Pending TP/OCO",
-        "status": "Open",
-        "quantity": quantity
+        "status": "Open"
     }
     if trade_log_callback:
         trade_log_callback(log_entry)
@@ -351,10 +356,15 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     log_entry = {
         "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
+        "type": "bull",  # or "bear"
+        "symbol": symbol,
+        "sell_strike": sell_strike,
+        "buy_strike": buy_strike,
+        "expiry": expiry,
         "open_price": mid_credit,
+        "quantity": quantity,
         "close_reason": "Pending TP/OCO",
-        "status": "Open",
-        "quantity": quantity
+        "status": "Open"
     }
     if trade_log_callback:
         trade_log_callback(log_entry)
