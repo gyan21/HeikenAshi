@@ -116,7 +116,7 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         trade_log_callback(log_entry)
 
     async def monitor_stop_trigger():
-        print(f"📡 Watching 1-min close for stop above {sell_strike} and theta diff OCO")
+        print(f"📡 Watching 1-min close for stop above/below short strike and theta diff OCO")
         while True:
             sell_data_live = ib.reqMktData(sell_leg, '', False, False)
             buy_data_live = ib.reqMktData(buy_leg, '', False, False)
@@ -128,7 +128,7 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
             except:
                 spread_price = None
 
-            # Theta diff exit
+            # Theta diff exit (any time)
             if theta_diff is not None and spread_price is not None and spread_price < theta_diff:
                 print(f"🛑 Spread price {spread_price} < theta diff {theta_diff:.4f}, closing spread.")
                 close_order = Order(
@@ -144,7 +144,7 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
                     open_price=mid_credit,
                     close_price=spread_price if spread_price is not None else 0,
                     quantity=quantity,
-                    trade_type="bear",
+                    trade_type="bear" if sell_leg.right == 'C' else "bull",
                     status="Exited by theta diff",
                     reason="Spread price < theta difference"
                 )
@@ -159,7 +159,7 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
                     })
                 break
 
-            # 1-min bar exit
+            # 1-min bar exit (only after 10am)
             bars = ib.reqHistoricalData(
                 Stock(symbol, 'SMART', 'USD'),
                 endDateTime='',
@@ -169,35 +169,70 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
                 useRTH=True,
                 formatDate=1
             )
-            if bars and bars[-1].close > sell_strike:
-                print(f"🛑 1-min close > {sell_strike} detected at {bars[-1].close}")
-                close_order = Order(
-                    action='BUY',
-                    orderType='MKT',
-                    totalQuantity=quantity,
-                    transmit=True
-                )
-                ib.placeOrder(combo, close_order)
-                ib.cancelOrder(tp_trade.order)
-                log_trade_close(
-                    trade={"spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}"},
-                    open_price=mid_credit,
-                    close_price=bars[-1].close,
-                    quantity=quantity,
-                    trade_type="bear",
-                    status="Exited manually",
-                    reason="1-min close above short strike"
-                )
-                if trade_log_callback:
-                    trade_log_callback({
-                        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
-                        "open_price": mid_credit,
-                        "close_reason": "1-min close above short strike",
-                        "status": "Exited manually",
-                        "quantity": quantity
-                    })
-                break
+            now = datetime.now()
+            if now.hour >= 10:
+                if sell_leg.right == 'C':
+                    # Bear spread: stop if price > sell_strike
+                    if bars and bars[-1].close > sell_strike:
+                        print(f"🛑 1-min close > {sell_strike} detected at {bars[-1].close}")
+                        close_order = Order(
+                            action='BUY',
+                            orderType='MKT',
+                            totalQuantity=quantity,
+                            transmit=True
+                        )
+                        ib.placeOrder(combo, close_order)
+                        ib.cancelOrder(tp_trade.order)
+                        log_trade_close(
+                            trade={"spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}"},
+                            open_price=mid_credit,
+                            close_price=bars[-1].close,
+                            quantity=quantity,
+                            trade_type="bear",
+                            status="Exited manually",
+                            reason="1-min close above short strike"
+                        )
+                        if trade_log_callback:
+                            trade_log_callback({
+                                "date": now.strftime("%Y-%m-%d %H:%M:%S"),
+                                "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
+                                "open_price": mid_credit,
+                                "close_reason": "1-min close above short strike",
+                                "status": "Exited manually",
+                                "quantity": quantity
+                            })
+                        break
+                else:
+                    # Bull spread: stop if price < sell_strike
+                    if bars and bars[-1].close < sell_strike:
+                        print(f"🛑 1-min close < {sell_strike} detected at {bars[-1].close}")
+                        close_order = Order(
+                            action='BUY',
+                            orderType='MKT',
+                            totalQuantity=quantity,
+                            transmit=True
+                        )
+                        ib.placeOrder(combo, close_order)
+                        ib.cancelOrder(tp_trade.order)
+                        log_trade_close(
+                            trade={"spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}"},
+                            open_price=mid_credit,
+                            close_price=bars[-1].close,
+                            quantity=quantity,
+                            trade_type="bull",
+                            status="Exited manually",
+                            reason="1-min close below short strike"
+                        )
+                        if trade_log_callback:
+                            trade_log_callback({
+                                "date": now.strftime("%Y-%m-%d %H:%M:%S"),
+                                "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
+                                "open_price": mid_credit,
+                                "close_reason": "1-min close below short strike",
+                                "status": "Exited manually",
+                                "quantity": quantity
+                            })
+                        break
             await asyncio.sleep(60)
 
     asyncio.create_task(monitor_stop_trigger())
@@ -298,7 +333,7 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
             except:
                 spread_price = None
 
-            # Theta diff exit
+            # Theta diff exit (any time)
             if theta_diff is not None and spread_price is not None and spread_price < theta_diff:
                 print(f"🛑 Spread price {spread_price} < theta diff {theta_diff:.4f}, closing spread.")
                 close_order = Order(
@@ -329,7 +364,7 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
                     })
                 break
 
-            # 1-min bar exit
+            # 1-min bar exit (only after 10am)
             bars = ib.reqHistoricalData(
                 Stock(symbol, 'SMART', 'USD'),
                 endDateTime='',
@@ -339,35 +374,70 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
                 useRTH=True,
                 formatDate=1
             )
-            if bars and bars[-1].close < sell_strike:
-                print(f"🛑 1-min close < {sell_strike} detected at {bars[-1].close}")
-                close_order = Order(
-                    action='BUY',
-                    orderType='MKT',
-                    totalQuantity=quantity,
-                    transmit=True
-                )
-                ib.placeOrder(combo, close_order)
-                ib.cancelOrder(tp_trade.order)
-                log_trade_close(
-                    trade={"spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}"},
-                    open_price=mid_credit,
-                    close_price=bars[-1].close,
-                    quantity=quantity,
-                    trade_type="bull",
-                    status="Exited manually",
-                    reason="1-min close below short strike"
-                )
-                if trade_log_callback:
-                    trade_log_callback({
-                        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
-                        "open_price": mid_credit,
-                        "close_reason": "1-min close below short strike",
-                        "status": "Exited manually",
-                        "quantity": quantity
-                    })
-                break
+            now = datetime.now()
+            if now.hour >= 10:
+                if sell_leg.right == 'C':
+                    # Bear spread: stop if price > sell_strike
+                    if bars and bars[-1].close > sell_strike:
+                        print(f"🛑 1-min close > {sell_strike} detected at {bars[-1].close}")
+                        close_order = Order(
+                            action='BUY',
+                            orderType='MKT',
+                            totalQuantity=quantity,
+                            transmit=True
+                        )
+                        ib.placeOrder(combo, close_order)
+                        ib.cancelOrder(tp_trade.order)
+                        log_trade_close(
+                            trade={"spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}"},
+                            open_price=mid_credit,
+                            close_price=bars[-1].close,
+                            quantity=quantity,
+                            trade_type="bear",
+                            status="Exited manually",
+                            reason="1-min close above short strike"
+                        )
+                        if trade_log_callback:
+                            trade_log_callback({
+                                "date": now.strftime("%Y-%m-%d %H:%M:%S"),
+                                "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
+                                "open_price": mid_credit,
+                                "close_reason": "1-min close above short strike",
+                                "status": "Exited manually",
+                                "quantity": quantity
+                            })
+                        break
+                else:
+                    # Bull spread: stop if price < sell_strike
+                    if bars and bars[-1].close < sell_strike:
+                        print(f"🛑 1-min close < {sell_strike} detected at {bars[-1].close}")
+                        close_order = Order(
+                            action='BUY',
+                            orderType='MKT',
+                            totalQuantity=quantity,
+                            transmit=True
+                        )
+                        ib.placeOrder(combo, close_order)
+                        ib.cancelOrder(tp_trade.order)
+                        log_trade_close(
+                            trade={"spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}"},
+                            open_price=mid_credit,
+                            close_price=bars[-1].close,
+                            quantity=quantity,
+                            trade_type="bull",
+                            status="Exited manually",
+                            reason="1-min close below short strike"
+                        )
+                        if trade_log_callback:
+                            trade_log_callback({
+                                "date": now.strftime("%Y-%m-%d %H:%M:%S"),
+                                "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
+                                "open_price": mid_credit,
+                                "close_reason": "1-min close below short strike",
+                                "status": "Exited manually",
+                                "quantity": quantity
+                            })
+                        break
             await asyncio.sleep(60)
 
     asyncio.create_task(monitor_stop_trigger())
