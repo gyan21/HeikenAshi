@@ -109,31 +109,65 @@ def log_trade_close(trade, open_price, close_price, quantity, trade_type, status
     save_trade_to_excel(log_entry)
 
 def get_win_rate_and_position_scale(trade_log_file=TRADE_LOG_FILE):
+    """
+    Calculates win rate for the last 2 weeks of closed trades.
+    Starts at 2% position size. For every 2-week period with win rate > 70%,
+    increases position size by 1% (cumulative), up to a maximum of 5%.
+    """
     now = datetime.now()
-    two_weeks_ago = now - timedelta(days=14)
-    wins = 0
-    total = 0
+    position_scale = 0.02  # Start at 2%
+    max_scale = 0.05       # Max 5%
 
     if not os.path.exists(trade_log_file):
-        return 0.0, 0.02
+        return 0.0, position_scale
 
     with open(trade_log_file, 'r') as f:
         trades = json.load(f)
-        for trade in trades:
-            try:
-                trade_date = datetime.strptime(trade.get("date", ""), "%Y-%m-%d %H:%M:%S")
-            except Exception:
-                continue
-            if trade_date < two_weeks_ago:
-                continue
-            if trade.get("status", "").lower().startswith("exited"):
-                total += 1
-                profit = trade.get("profit", None)
-                if profit is not None and profit > 0:
-                    wins += 1
 
-    win_rate = (wins / total) * 100 if total > 0 else 0.0
-    position_scale = 0.03 if win_rate > 70 else 0.02
+    # Only consider closed trades
+    trades = [t for t in trades if t.get("status", "").lower().startswith("exited")]
+    if not trades:
+        return 0.0, position_scale
+
+    # Sort trades by date ascending
+    trades = sorted(trades, key=lambda t: t.get("date", ""))
+
+    # Find the earliest and latest trade date
+    try:
+        earliest_date = datetime.strptime(trades[0]["date"], "%Y-%m-%d %H:%M:%S")
+        latest_date = datetime.strptime(trades[-1]["date"], "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return 0.0, position_scale
+
+    # Step through 2-week windows, scaling up if win rate > 70%
+    window_start = earliest_date
+    while window_start < latest_date:
+        window_end = window_start + timedelta(days=14)
+        window_trades = [
+            t for t in trades
+            if window_start <= datetime.strptime(t["date"], "%Y-%m-%d %H:%M:%S") < window_end
+        ]
+        if window_trades:
+            wins = sum(1 for t in window_trades if t.get("profit", 0) > 0)
+            win_rate = (wins / len(window_trades)) * 100
+            if win_rate > 70 and position_scale < max_scale:
+                position_scale += 0.01
+        window_start = window_end
+
+    # For the current 2-week window, return its win rate
+    two_weeks_ago = now - timedelta(days=14)
+    current_window_trades = [
+        t for t in trades
+        if two_weeks_ago <= datetime.strptime(t["date"], "%Y-%m-%d %H:%M:%S") <= now
+    ]
+    if current_window_trades:
+        wins = sum(1 for t in current_window_trades if t.get("profit", 0) > 0)
+        win_rate = (wins / len(current_window_trades)) * 100
+    else:
+        win_rate = 0.0
+
+    # Cap position_scale at 5%
+    position_scale = min(position_scale, max_scale)
     return win_rate, position_scale
 
 def load_open_trades(trade_log_file=TRADE_LOG_FILE):
