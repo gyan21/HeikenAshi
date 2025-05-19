@@ -253,7 +253,13 @@ async def main():
     # Resume monitoring for open trades
     await resume_monitoring_open_trades(ib_client, save_trade_to_log)
 
-    # ...then place new trades as usual...
+    symbol = 'SPY'
+    expiry = None  # Set this to the next expiry date string, e.g., '20240520'
+
+    # Run strategy every minute during trading window
+    while should_trade_now():
+        await run_combined_strategy(ib_client, symbol, expiry, ACCOUNT_VALUE, save_trade_to_log)
+        await asyncio.sleep(60)  # Wait 1 minute before next run
 
 if __name__ == "__main__":
     asyncio.run(main())
