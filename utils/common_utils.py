@@ -2,7 +2,7 @@ import os
 import json
 from datetime import datetime, date, time
 
-def has_reached_trade_limit(log_file='trade_log.json', max_trades=2):
+def has_reached_trade_limit(log_file='trade_log.json', max_trades=3):
     if not os.path.exists(log_file):
         return False
     with open(log_file, 'r') as f:
