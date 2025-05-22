@@ -3,7 +3,7 @@ from datetime import datetime
 
 ib = IB()
 ib.connect('127.0.0.1', 7497, clientId=1)
-ib.reqMarketDataType(2)
+ib.reqMarketDataType(1)
 
 # Step 1: Setup
 symbol = 'SPY'

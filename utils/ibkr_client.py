@@ -13,7 +13,7 @@ class IBKRClient:
     def connect(self):
         try:
             self.ib.connect(self.host, self.port, clientId=self.clientId)
-            self.ib.reqMarketDataType(2)  # ✅ Use frozen data for after-hours access
+            self.ib.reqMarketDataType(1)  # ✅ Use frozen data for after-hours access
             print("✅ Connected to IBKR with frozen data mode")
             return True
         except Exception as e:
