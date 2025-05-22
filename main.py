@@ -2,16 +2,12 @@ import asyncio
 from datetime import datetime, time, timedelta
 from utils.ibkr_client import IBKRClient
 from utils.heikin_ashi import get_regular_and_heikin_ashi_close
-from utils.option_utils import (
-    find_option_by_delta,
-    get_option_iv,
-    place_bull_spread_with_oco,
-    place_bear_spread_with_oco
-)
+
 from utils.common_utils import is_dry_run, has_reached_trade_limit
 from utils.excel_utils import save_trade_to_excel  # Add this import
 import json
 import os
+from utils.trade_utils import log_trade_close, load_open_trades, find_option_by_delta
 
 ACCOUNT_VALUE = 100000
 TRADE_LOG_FILE = 'trade_log.json'
@@ -122,25 +118,6 @@ async def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_cal
 
         await asyncio.sleep(20)  # Check every 20 seconds for the next minute
 
-def log_trade_close(trade, open_price, close_price, quantity, trade_type, status, reason):
-    profit = (close_price - open_price) * quantity if trade_type == "bull" else (open_price - close_price) * quantity
-    profit_pct = (profit / (open_price * quantity)) * 100 if open_price else 0
-    log_entry = {
-        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "spread": trade.get("spread"),
-        "open_price": open_price,
-        "close_price": close_price,
-        "profit": profit,
-        "profit_pct": profit_pct,
-        "status": status,
-        "close_reason": reason,
-        "quantity": quantity
-    }
-    save_trade_to_log(log_entry)
-    # Only log closed trades to Excel
-    from utils.excel_utils import save_trade_to_excel
-    save_trade_to_excel(log_entry)
-
 def get_win_rate_and_position_scale(trade_log_file=TRADE_LOG_FILE):
     """
     Calculates win rate for the last 2 weeks of closed trades.
@@ -202,17 +179,6 @@ def get_win_rate_and_position_scale(trade_log_file=TRADE_LOG_FILE):
     # Cap position_scale at 5%
     position_scale = min(position_scale, max_scale)
     return win_rate, position_scale
-
-def load_open_trades(trade_log_file=TRADE_LOG_FILE):
-    open_trades = []
-    if not os.path.exists(trade_log_file):
-        return open_trades
-    with open(trade_log_file, 'r') as f:
-        trades = json.load(f)
-        for trade in trades:
-            if trade.get("status") == "Open":
-                open_trades.append(trade)
-    return open_trades
 
 async def resume_monitoring_open_trades(ib, trade_log_callback=None):
     open_trades = load_open_trades()

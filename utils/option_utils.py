@@ -2,35 +2,7 @@ from ib_insync import Option, Contract, ComboLeg, Order, Stock
 import numpy as np
 import asyncio
 from datetime import datetime
-from main import log_trade_close, load_open_trades  # Ensure these imports are correct
-
-def find_option_by_delta(ib, symbol, expiry, right, target_delta=0.20, tolerance=0.05):
-    # right: 'P' for put, 'C' for call
-    strikes = []
-    deltas = []
-    options = []
-    chain = ib.reqSecDefOptParams(symbol, '', symbol, 'STK')
-    if not chain:
-        return None
-    strikes_list = sorted(chain[0].strikes)
-    for strike in strikes_list:
-        option = Option(symbol, expiry, strike, right, 'SMART')
-        ib.qualifyContracts(option)
-        data = ib.reqMktData(option, '', False, False)
-        ib.sleep(0.5)
-        delta = getattr(getattr(data, 'modelGreeks', None), 'delta', None)
-        ib.cancelMktData(option)
-        if delta is not None:
-            deltas.append(abs(delta))
-            strikes.append(strike)
-            options.append(option)
-    if not deltas:
-        return None
-    deltas = np.array(deltas)
-    idx = (np.abs(deltas - target_delta)).argmin()
-    if abs(deltas[idx] - target_delta) <= tolerance:
-        return options[idx]
-    return None
+from trade_utils import log_trade_close, load_open_trades
 
 def get_option_iv(ib, option):
     data = ib.reqMktData(option, '', False, False)
