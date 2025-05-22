@@ -1,10 +1,9 @@
-import asyncio
-from datetime import datetime, time, timedelta
+import time
+from datetime import datetime, time as dtime, timedelta
 from utils.ibkr_client import IBKRClient
 from utils.heikin_ashi import get_regular_and_heikin_ashi_close
-
 from utils.common_utils import is_dry_run, has_reached_trade_limit
-from utils.excel_utils import save_trade_to_excel  # Add this import
+from utils.excel_utils import save_trade_to_excel
 import json
 import os
 from utils.trade_utils import log_trade_close, load_open_trades, find_option_by_delta
@@ -25,21 +24,18 @@ def save_trade_to_log(trade_info):
     log_data.append(trade_info)
     with open(TRADE_LOG_FILE, 'w') as f:
         json.dump(log_data, f, indent=2)
-    # Remove or comment out this line:
-    # save_trade_to_excel(trade_info)
 
 def is_time_between(start, end):
     now = datetime.now().time()
     return start <= now <= end
 
 def should_trade_now():
-    return is_time_between(time(15, 45), time(16, 0))
+    return is_time_between(dtime(15, 45), dtime(16, 0))
 
 def is_iv_favorable(iv, iv_threshold=0.25):
-    # You may want to use a dynamic threshold based on historical IV
     return iv is not None and iv > iv_threshold
 
-async def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_callback=None):
+def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_callback=None):
     """
     Checks the delta of the option at 48, 53, and 57 minutes of the hour,
     and sells the spread if the sell side option has delta close to 0.20.
@@ -116,7 +112,7 @@ async def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_cal
             print("Finished all checks or trading window ended.")
             break
 
-        await asyncio.sleep(20)  # Check every 20 seconds for the next minute
+        time.sleep(20) # Check every 20 seconds for the next minute
 
 def get_win_rate_and_position_scale(trade_log_file=TRADE_LOG_FILE):
     """
@@ -125,8 +121,8 @@ def get_win_rate_and_position_scale(trade_log_file=TRADE_LOG_FILE):
     increases position size by 1% (cumulative), up to a maximum of 5%.
     """
     now = datetime.now()
-    position_scale = 0.02  # Start at 2%
-    max_scale = 0.05       # Max 5%
+    position_scale = 0.02 # Start at 2%
+    max_scale = 0.05      # Max 5%
 
     if not os.path.exists(trade_log_file):
         return 0.0, position_scale
@@ -180,7 +176,7 @@ def get_win_rate_and_position_scale(trade_log_file=TRADE_LOG_FILE):
     position_scale = min(position_scale, max_scale)
     return win_rate, position_scale
 
-async def resume_monitoring_open_trades(ib, trade_log_callback=None):
+def resume_monitoring_open_trades(ib, trade_log_callback=None):
     open_trades = load_open_trades()
     for trade in open_trades:
         symbol = trade["symbol"]
@@ -202,7 +198,7 @@ async def resume_monitoring_open_trades(ib, trade_log_callback=None):
                 open_price * quantity, trade_log_callback
             )
 
-async def main():
+def main():
     if is_dry_run():
         print("🧪 Dry run mode — weekend detected. No trades will be placed.")
         return
@@ -217,15 +213,15 @@ async def main():
         return
 
     # Resume monitoring for open trades
-    await resume_monitoring_open_trades(ib_client, save_trade_to_log)
+    resume_monitoring_open_trades(ib_client, save_trade_to_log)
 
     symbol = 'SPY'
     expiry = None  # Set this to the next expiry date string, e.g., '20240520'
 
     # Run strategy every minute during trading window
     while should_trade_now():
-        await run_combined_strategy(ib_client, symbol, expiry, ACCOUNT_VALUE, save_trade_to_log)
-        await asyncio.sleep(60)  # Wait 1 minute before next run
+        run_combined_strategy(ib_client, symbol, expiry, ACCOUNT_VALUE, save_trade_to_log)
+        time.sleep(60)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
