@@ -10,3 +10,4 @@ utils/__pycache__/trade_utils.cpython-313.pyc
 test_bull_put_spread.py
 test_bull_put_spread.py
 analysis_report.xlsx
+trade_log.json

@@ -20,9 +20,6 @@ def should_trade_now():
     # return is_time_between(dtime(15, 45), dtime(16, 0))
     return 1
 
-def is_iv_favorable(iv, iv_threshold=0.25):
-    return iv is not None and iv > iv_threshold
-
 def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_callback=None):
     """
     Checks the delta of the option at 48, 53, and 57 minutes of the hour,
@@ -59,10 +56,6 @@ def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_callback=
                 print("No suitable PUT options found with delta in [0.20, 0.30).")
             else:
                 for option, delta in options:
-                    iv = get_option_iv(ib.ib, option)
-                    if not is_iv_favorable(iv):
-                        print(f"Volatility not favorable for PUT {option.strike}.")
-                        continue
                     sell_strike = option.strike
                     buy_strike = sell_strike - 5
                     place_bull_spread_with_oco(
@@ -77,10 +70,6 @@ def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_callback=
                 print("No suitable CALL options found with delta in [0.20, 0.30).")
             else:
                 for option, delta in options:
-                    iv = get_option_iv(ib.ib, option)
-                    if not is_iv_favorable(iv):
-                        print(f"Volatility not favorable for CALL {option.strike}.")
-                        continue
                     sell_strike = option.strike
                     buy_strike = sell_strike + 5
                     place_bear_spread_with_oco(

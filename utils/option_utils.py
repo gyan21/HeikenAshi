@@ -1,8 +1,8 @@
 from ib_insync import Option, Contract, ComboLeg, Order, Stock
 import numpy as np
 import asyncio
-from datetime import datetime
-import datetime
+from datetime import datetime, date
+import time 
 
 
 def get_option_iv(ib, option):
@@ -434,7 +434,7 @@ def get_next_option_expiry(ib, symbol):
     if not chains:
         return None
     expiries = sorted(list(set(chains[0].expirations)))
-    today = datetime.date.today()
+    today = date.today()
     for expiry_str in expiries:
         expiry_date = datetime.datetime.strptime(expiry_str, "%Y%m%d").date()
         if expiry_date > today:
@@ -454,7 +454,7 @@ def find_option_by_delta(ib, symbol, expiry=None, right='C', target_delta=0.20, 
 
     # Find next expiry if not provided
     expiries = sorted(list(set(chain[0].expirations)))
-    today = datetime.date.today()
+    today = date.today()
     if expiry is None:
         for expiry_str in expiries:
             expiry_date = datetime.datetime.strptime(expiry_str, "%Y%m%d").date()
@@ -488,9 +488,7 @@ def find_option_by_delta(ib, symbol, expiry=None, right='C', target_delta=0.20, 
 
 def find_options_by_delta(ib, symbol, expiry=None, right='C', min_delta=0.20, max_delta=0.30):
     """
-    Return a list of Option contracts for the next expiry with delta in [min_delta, max_delta).
-    Only checks valid strikes for the expiry, within ±20 of the current price.
-    Logs each checked strike and each match.
+    Optimized: Start at ATM, scan up (calls) or down (puts), stop after 4 matches.
     """
     contract = Stock(symbol, 'SMART', 'USD')
     ib.qualifyContracts(contract)
@@ -501,7 +499,7 @@ def find_options_by_delta(ib, symbol, expiry=None, right='C', min_delta=0.20, ma
 
     # Find next expiry if not provided
     expiries = sorted(list(set(chain[0].expirations)))
-    today = datetime.date.today()
+    today = date.today()
     if expiry is None:
         for expiry_str in expiries:
             expiry_date = datetime.datetime.strptime(expiry_str, "%Y%m%d").date()
@@ -524,21 +522,40 @@ def find_options_by_delta(ib, symbol, expiry=None, right='C', min_delta=0.20, ma
     # Get valid strikes for this expiry using reqContractDetails
     from ib_insync import Option
     details = ib.reqContractDetails(Option(symbol, expiry, 0, right, 'SMART'))
-    valid_strikes = sorted({cd.contract.strike for cd in details if abs(cd.contract.strike - price) <= 20})
+    valid_strikes = sorted({cd.contract.strike for cd in details if abs(cd.contract.strike - price) <= 10})
+    if not valid_strikes:
+        print(f"[WARN] No valid strikes found for {symbol} {expiry} {right}")
+        return []
 
+    # Find ATM index
+    atm_idx = min(range(len(valid_strikes)), key=lambda i: abs(valid_strikes[i] - price))
     matching_options = []
-    for strike in valid_strikes:
+    start_time = time.time()
+
+    # Direction: puts go down, calls go up
+    if right.upper() == 'P':
+        strike_range = range(atm_idx, -1, -1)  # ATM down to lowest
+    else:
+        strike_range = range(atm_idx, len(valid_strikes))  # ATM up to highest
+
+    for idx in strike_range:
+        strike = valid_strikes[idx]
         print(f"[INFO] Checking strike {strike} for {symbol} {expiry} {right}")
         option = Option(symbol, expiry, strike, right, 'SMART')
         ib.qualifyContracts(option)
         data = ib.reqMktData(option, '', False, False)
-        ib.sleep(0.4)  # Avoid pacing violation
+        ib.sleep(2)
         delta = getattr(getattr(data, 'modelGreeks', None), 'delta', None)
-        print(f"[INFO] Delta for {symbol} {expiry} {right} {strike}: {delta} | Bid: {data.bid}, Ask: {data.ask}, Last: {data.last}")
+        print(f"[INFO] Delta for {symbol} {expiry} {right} {strike}: {delta}")
         ib.cancelMktData(option)
+        if data.modelGreeks is None:
+            print(f"[ERROR] modelGreeks missing for {option}. Check market data subscription!")
         if delta is not None and min_delta <= abs(delta) < max_delta:
             print(f"[MATCH] {symbol} {expiry} {right} {strike} delta={delta:.3f}")
             matching_options.append((option, delta))
+
+    end_time = time.time()
+    print(f"[TIMER] Loop through strikes took {end_time - start_time:.2f} seconds.")
 
     if not matching_options:
         print(f"[INFO] No options found for {symbol} {expiry} {right} in delta range [{min_delta}, {max_delta})")
