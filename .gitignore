@@ -8,3 +8,5 @@ utils/__pycache__/common_utils.cpython-313.pyc
 utils/__pycache__/excel_utils.cpython-313.pyc
 utils/__pycache__/trade_utils.cpython-313.pyc
 test_bull_put_spread.py
+test_bull_put_spread.py
+analysis_report.xlsx

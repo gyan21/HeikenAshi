@@ -1,4 +1,6 @@
 import os
+import numpy as np
+from ib_insync import Stock, Option
 TRADE_LOG_FILE = "trade_log.xlsx"  # or your preferred path/filename
 def log_trade_close(trade, open_price, close_price, quantity, trade_type, status, reason):
     profit = (close_price - open_price) * quantity if trade_type == "bull" else (open_price - close_price) * quantity
@@ -35,7 +37,9 @@ def find_option_by_delta(ib, symbol, expiry, right, target_delta=0.20, tolerance
     strikes = []
     deltas = []
     options = []
-    chain = ib.reqSecDefOptParams(symbol, '', symbol, 'STK')
+    contract = Stock(symbol, 'SMART', 'USD')
+    ib.qualifyContracts(contract)
+    chain = ib.reqSecDefOptParams(contract.symbol, '', contract.secType, contract.conId)
     if not chain:
         return None
     strikes_list = sorted(chain[0].strikes)

@@ -2,7 +2,7 @@ from ib_insync import Option, Contract, ComboLeg, Order, Stock
 import numpy as np
 import asyncio
 from datetime import datetime
-from trade_utils import log_trade_close, load_open_trades
+from utils.trade_utils import log_trade_close, load_open_trades
 
 def get_option_iv(ib, option):
     data = ib.reqMktData(option, '', False, False)

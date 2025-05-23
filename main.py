@@ -7,6 +7,7 @@ from utils.excel_utils import save_trade_to_excel
 import json
 import os
 from utils.trade_utils import log_trade_close, load_open_trades, find_option_by_delta
+from utils.option_utils    import place_bull_spread_with_oco, place_bear_spread_with_oco, get_option_iv
 
 ACCOUNT_VALUE = 100000
 TRADE_LOG_FILE = 'trade_log.json'
@@ -30,7 +31,8 @@ def is_time_between(start, end):
     return start <= now <= end
 
 def should_trade_now():
-    return is_time_between(dtime(15, 45), dtime(16, 0))
+    # return is_time_between(dtime(15, 45), dtime(16, 0))
+    return 1
 
 def is_iv_favorable(iv, iv_threshold=0.25):
     return iv is not None and iv > iv_threshold
@@ -50,62 +52,62 @@ def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_callback=
     win_rate, position_scale = get_win_rate_and_position_scale()
     print(f"Win rate (last 2 weeks): {win_rate:.1f}%. Position scale: {position_scale*100:.0f}% of account value.")
 
-    regular_close, ha_close = get_regular_and_heikin_ashi_close(ib, symbol)
+    regular_close, ha_close = get_regular_and_heikin_ashi_close(ib.ib, symbol)
     print(f"Regular close: {regular_close}, Heikin Ashi close: {ha_close}")
 
-    # Minutes to check: 48, 53, 57
-    check_minutes = [48, 53, 57]
+    # Minutes to check: 47, 52, 57
+    check_minutes = [47, 52, 57]
     already_tried = set()
 
     while True:
         now = datetime.now()
         minute = now.minute
-        if minute in check_minutes and minute not in already_tried:
-            already_tried.add(minute)
-            print(f"⏰ Checking at {minute} minutes past the hour...")
+        # Gyanesh if minute in check_minutes and minute not in already_tried:
+        already_tried.add(minute)
+        print(f"⏰ Checking at {minute} minutes past the hour...")
 
-            if regular_close > ha_close:
-                # Bull case: Sell PUT spread
-                option = find_option_by_delta(ib, symbol, expiry, 'P', target_delta=0.20)
-                if not option:
-                    print("No suitable PUT option found near delta 0.20.")
-                else:
-                    iv = get_option_iv(ib, option)
-                    if not is_iv_favorable(iv):
-                        print("Volatility not favorable for selling PUT spread.")
-                    elif abs(abs(option.modelGreeks.delta) - 0.20) <= 0.03:
-                        sell_strike = option.strike
-                        buy_strike = sell_strike - 5
-                        place_bull_spread_with_oco(
-                            ib, symbol, (sell_strike, buy_strike), expiry,
-                            account_value * position_scale, trade_log_callback
-                        )
-                        print("✅ Sold PUT spread.")
-                        break
-                    else:
-                        print(f"PUT delta {option.modelGreeks.delta:.2f} not close enough to 0.20.")
-            elif regular_close < ha_close:
-                # Bear case: Sell CALL spread
-                option = find_option_by_delta(ib, symbol, expiry, 'C', target_delta=0.20)
-                if not option:
-                    print("No suitable CALL option found near delta 0.20.")
-                else:
-                    iv = get_option_iv(ib, option)
-                    if not is_iv_favorable(iv):
-                        print("Volatility not favorable for selling CALL spread.")
-                    elif abs(abs(option.modelGreeks.delta) - 0.20) <= 0.03:
-                        sell_strike = option.strike
-                        buy_strike = sell_strike + 5
-                        place_bear_spread_with_oco(
-                            ib, symbol, (sell_strike, buy_strike), expiry,
-                            account_value * position_scale, trade_log_callback
-                        )
-                        print("✅ Sold CALL spread.")
-                        break
-                    else:
-                        print(f"CALL delta {option.modelGreeks.delta:.2f} not close enough to 0.20.")
+        if regular_close > ha_close:
+            # Bull case: Sell PUT spread
+            option = find_option_by_delta(ib.ib, symbol, expiry, 'P', target_delta=0.20)
+            if not option:
+                print("No suitable PUT option found near delta 0.20.")
             else:
-                print("No clear bull or bear case.")
+                iv = get_option_iv(ib.ib, option)
+                if not is_iv_favorable(iv):
+                    print("Volatility not favorable for selling PUT spread.")
+                elif abs(abs(option.modelGreeks.delta) - 0.20) <= 0.03:
+                    sell_strike = option.strike
+                    buy_strike = sell_strike - 5
+                    place_bull_spread_with_oco(
+                        ib.ib, symbol, (sell_strike, buy_strike), expiry,
+                        account_value * position_scale, trade_log_callback
+                    )
+                    print("✅ Sold PUT spread.")
+                    break
+                else:
+                    print(f"PUT delta {option.modelGreeks.delta:.2f} not close enough to 0.20.")
+        elif regular_close < ha_close:
+            # Bear case: Sell CALL spread
+            option = find_option_by_delta(ib.ib, symbol, expiry, 'C', target_delta=0.20)
+            if not option:
+                print("No suitable CALL option found near delta 0.20.")
+            else:
+                iv = get_option_iv(ib.ib, option)
+                if not is_iv_favorable(iv):
+                    print("Volatility not favorable for selling CALL spread.")
+                elif abs(abs(option.modelGreeks.delta) - 0.20) <= 0.03:
+                    sell_strike = option.strike
+                    buy_strike = sell_strike + 5
+                    place_bear_spread_with_oco(
+                        ib.ib, symbol, (sell_strike, buy_strike), expiry,
+                        account_value * position_scale, trade_log_callback
+                    )
+                    print("✅ Sold CALL spread.")
+                    break
+                else:
+                    print(f"CALL delta {option.modelGreeks.delta:.2f} not close enough to 0.20.")
+        else:
+            print("No clear bull or bear case.")
 
         # Exit loop if all minutes have been checked or time window is over
         if len(already_tried) == len(check_minutes) or not should_trade_now():

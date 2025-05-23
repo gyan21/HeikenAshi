@@ -19,11 +19,12 @@ def get_regular_and_heikin_ashi_close(ib: IB, symbol: str):
     ib.qualifyContracts(contract)
     bars = ib.reqHistoricalData(
         contract,
-        endDateTime=datetime.now().strftime("%Y%m%d %H:%M:%S"),
+        # endDateTime=datetime.now().strftime("%Y%m%d %H:%M:%S"),
+        endDateTime='',
         durationStr='5 D',
         barSizeSetting='1 day',
         whatToShow='TRADES',
-        useRTH=False,
+        useRTH=True,
         formatDate=1
     )
     if not bars or len(bars) < 2:
