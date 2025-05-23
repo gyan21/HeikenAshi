@@ -28,6 +28,7 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
             ComboLeg(conId=buy_leg.conId, ratio=1, action='BUY', exchange='SMART')
         ]
     )
+    print(f"Combo conId: {combo.conId}")
     sell_data = ib.reqMktData(sell_leg, '', False, False)
     buy_data = ib.reqMktData(buy_leg, '', False, False)
     ib.sleep(2)
@@ -53,10 +54,11 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         orderType='LMT',
         totalQuantity=quantity,
         lmtPrice=mid_credit,
-        transmit=False
+        transmit=True
     )
     trade = ib.placeOrder(combo, parent_order)
-    ib.sleep(1)
+    ib.sleep(2)
+    print(trade)
     parent_id = trade.order.orderId
     take_profit = Order(
         action='BUY',
@@ -209,7 +211,9 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
                         break
             await asyncio.sleep(60)
 
-    asyncio.create_task(monitor_stop_trigger())
+    import asyncio
+    loop = asyncio.get_event_loop()
+    loop.create_task(monitor_stop_trigger())
 
     return {
         "spread": f"{symbol}_{sell_strike}_{buy_strike}_{expiry}",
@@ -234,6 +238,7 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
             ComboLeg(conId=buy_leg.conId, ratio=1, action='BUY', exchange='SMART')
         ]
     )
+    print(f"Combo conId: {combo.conId}")
     sell_data = ib.reqMktData(sell_leg, '', False, False)
     buy_data = ib.reqMktData(buy_leg, '', False, False)
     ib.sleep(2)
@@ -259,10 +264,11 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         orderType='LMT',
         totalQuantity=quantity,
         lmtPrice=mid_credit,
-        transmit=False
+        transmit=True
     )
-    trade = ib.placeOrder(combo, parent_order)
-    ib.sleep(1)
+    trade = ib.placeOrder(combo, parent_order)    
+    ib.sleep(2)
+    print(trade)
     parent_id = trade.order.orderId
     take_profit = Order(
         action='BUY',
@@ -415,7 +421,9 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
                         break
             await asyncio.sleep(60)
 
-    asyncio.create_task(monitor_stop_trigger())
+    import asyncio
+    loop = asyncio.get_event_loop()
+    loop.create_task(monitor_stop_trigger())
 
     return {
         "spread": f"{symbol}_{sell_strike}_{buy_strike}_{expiry}",
@@ -440,51 +448,6 @@ def get_next_option_expiry(ib, symbol):
         if expiry_date > today:
             return expiry_str
     return None
-
-def find_option_by_delta(ib, symbol, expiry=None, right='C', target_delta=0.20, tolerance=0.05):
-    """
-    Find the option contract for the next expiry with delta in [0.20, 0.30).
-    Returns the Option contract closest to target_delta within that range.
-    """
-    contract = Stock(symbol, 'SMART', 'USD')
-    ib.qualifyContracts(contract)
-    chain = ib.reqSecDefOptParams(contract.symbol, '', contract.secType, contract.conId)
-    if not chain:
-        return None
-
-    # Find next expiry if not provided
-    expiries = sorted(list(set(chain[0].expirations)))
-    today = date.today()
-    if expiry is None:
-        for expiry_str in expiries:
-            expiry_date = datetime.datetime.strptime(expiry_str, "%Y%m%d").date()
-            if expiry_date > today:
-                expiry = expiry_str
-                break
-    if not expiry:
-        return None
-
-    strikes_list = sorted(chain[0].strikes)
-    best_option = None
-    best_delta_diff = float('inf')
-
-    for strike in strikes_list:
-        option = Option(symbol, expiry, strike, right, 'SMART')
-        ib.qualifyContracts(option)
-        data = ib.reqMktData(option, '', False, False)
-        ib.sleep(0.4)  # Reduce to 0.4s to speed up, but avoid pacing violation
-        delta = getattr(getattr(data, 'modelGreeks', None), 'delta', None)
-        ib.cancelMktData(option)
-        if delta is not None and 0.20 <= abs(delta) < 0.30:
-            delta_diff = abs(abs(delta) - target_delta)
-            if delta_diff < best_delta_diff:
-                best_delta_diff = delta_diff
-                best_option = option
-                # Early exit if perfect match
-                if delta_diff < 1e-3:
-                    break
-
-    return best_option
 
 def find_options_by_delta(ib, symbol, expiry=None, right='C', min_delta=0.20, max_delta=0.30):
     """
@@ -540,13 +503,11 @@ def find_options_by_delta(ib, symbol, expiry=None, right='C', min_delta=0.20, ma
 
     for idx in strike_range:
         strike = valid_strikes[idx]
-        print(f"[INFO] Checking strike {strike} for {symbol} {expiry} {right}")
         option = Option(symbol, expiry, strike, right, 'SMART')
         ib.qualifyContracts(option)
         data = ib.reqMktData(option, '', False, False)
         ib.sleep(2)
         delta = getattr(getattr(data, 'modelGreeks', None), 'delta', None)
-        print(f"[INFO] Delta for {symbol} {expiry} {right} {strike}: {delta}")
         ib.cancelMktData(option)
         if data.modelGreeks is None:
             print(f"[ERROR] modelGreeks missing for {option}. Check market data subscription!")

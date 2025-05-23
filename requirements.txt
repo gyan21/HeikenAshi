@@ -1,3 +1,4 @@
 ib_insync==0.9.83
+numpy
 pandas
 openpyxl
