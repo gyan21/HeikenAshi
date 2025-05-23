@@ -2,7 +2,8 @@ from ib_insync import Option, Contract, ComboLeg, Order, Stock
 import numpy as np
 import asyncio
 from datetime import datetime
-from utils.trade_utils import log_trade_close, load_open_trades
+import datetime
+
 
 def get_option_iv(ib, option):
     data = ib.reqMktData(option, '', False, False)
@@ -12,6 +13,7 @@ def get_option_iv(ib, option):
     return iv
 
 def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, trade_log_callback=None):
+    from utils.trade_utils import log_trade_close, load_open_trades
     sell_strike, buy_strike = strike_pair
     sell_leg = Option(symbol, expiry, sell_strike, 'C', 'SMART')
     buy_leg = Option(symbol, expiry, buy_strike, 'C', 'SMART')
@@ -217,6 +219,7 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     }
 
 def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, trade_log_callback=None):
+    from utils.trade_utils import log_trade_close, load_open_trades
     sell_strike, buy_strike = strike_pair
     sell_leg = Option(symbol, expiry, sell_strike, 'P', 'SMART')
     buy_leg = Option(symbol, expiry, buy_strike, 'P', 'SMART')

@@ -5,8 +5,8 @@ from datetime import datetime, time as dtime, timedelta
 from utils.ibkr_client import IBKRClient
 from utils.heikin_ashi import get_regular_and_heikin_ashi_close
 from utils.common_utils import is_dry_run, has_reached_trade_limit
-from utils.excel_utils import save_trade_to_excel
-from utils.trade_utils import log_trade_close, load_open_trades, find_option_by_delta, find_options_by_delta
+from utils.trade_utils import load_open_trades
+from utils.option_utils import find_options_by_delta
 from utils.option_utils    import place_bull_spread_with_oco, place_bear_spread_with_oco, get_option_iv
 from utils.logger import TRADE_LOG_FILE, save_trade_to_log
 from utils.option_utils import get_next_option_expiry
