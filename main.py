@@ -1,16 +1,16 @@
 import time
+import json
+import os
 from datetime import datetime, time as dtime, timedelta
 from utils.ibkr_client import IBKRClient
 from utils.heikin_ashi import get_regular_and_heikin_ashi_close
 from utils.common_utils import is_dry_run, has_reached_trade_limit
 from utils.excel_utils import save_trade_to_excel
-import json
-import os
 from utils.trade_utils import log_trade_close, load_open_trades, find_option_by_delta, find_options_by_delta
 from utils.option_utils    import place_bull_spread_with_oco, place_bear_spread_with_oco, get_option_iv
 from utils.logger import TRADE_LOG_FILE, save_trade_to_log
 from utils.option_utils import get_next_option_expiry
-
+from utils.trade_utils import is_market_hours
 ACCOUNT_VALUE = 100000
 def is_time_between(start, end):
     now = datetime.now().time()
@@ -195,6 +195,14 @@ def main():
     if not ib_client.connect():
         print("❌ Could not connect to IBKR.")
         return
+
+    # Set market data type based on market hours
+    if is_market_hours():
+        ib_client.ib.reqMarketDataType(1)  # Live
+        print("✅ Using LIVE market data")
+    else:
+        ib_client.ib.reqMarketDataType(2)  # Frozen
+        print("✅ Using FROZEN market data (after hours)")
 
     # Resume monitoring for open trades
     resume_monitoring_open_trades(ib_client, save_trade_to_log)
