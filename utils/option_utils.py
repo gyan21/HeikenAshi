@@ -421,6 +421,23 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         "quantity": quantity
     }
 
+def get_next_option_expiry(ib, symbol):
+    from ib_insync import Stock
+    import datetime
+
+    contract = Stock(symbol, 'SMART', 'USD')
+    ib.qualifyContracts(contract)
+    chains = ib.reqSecDefOptParams(contract.symbol, '', contract.secType, contract.conId)
+    if not chains:
+        return None
+    expiries = sorted(list(set(chains[0].expirations)))
+    today = datetime.date.today()
+    for expiry_str in expiries:
+        expiry_date = datetime.datetime.strptime(expiry_str, "%Y%m%d").date()
+        if expiry_date > today:
+            return expiry_str
+    return None
+
 async def resume_monitoring_open_trades(ib, trade_log_callback=None):
     open_trades = load_open_trades()
     for trade in open_trades:

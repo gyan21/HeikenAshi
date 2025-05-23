@@ -9,6 +9,7 @@ import os
 from utils.trade_utils import log_trade_close, load_open_trades, find_option_by_delta
 from utils.option_utils    import place_bull_spread_with_oco, place_bear_spread_with_oco, get_option_iv
 from utils.logger import TRADE_LOG_FILE, save_trade_to_log
+from utils.option_utils import get_next_option_expiry
 
 ACCOUNT_VALUE = 100000
 def is_time_between(start, end):
@@ -203,7 +204,11 @@ def main():
     resume_monitoring_open_trades(ib_client, save_trade_to_log)
 
     symbol = 'SPY'
-    expiry = None  # Set this to the next expiry date string, e.g., '20240520'
+    expiry = get_next_option_expiry(ib_client.ib, symbol)
+    print(f"Next option expiry: {expiry}")
+    if not expiry:
+        print("❌ Could not find a valid option expiry.")
+        return
 
     # Run strategy every minute during trading window
     while should_trade_now():
