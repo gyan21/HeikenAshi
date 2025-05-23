@@ -6,7 +6,7 @@ from utils.common_utils import is_dry_run, has_reached_trade_limit
 from utils.excel_utils import save_trade_to_excel
 import json
 import os
-from utils.trade_utils import log_trade_close, load_open_trades, find_option_by_delta
+from utils.trade_utils import log_trade_close, load_open_trades, find_option_by_delta, find_options_by_delta
 from utils.option_utils    import place_bull_spread_with_oco, place_bear_spread_with_oco, get_option_iv
 from utils.logger import TRADE_LOG_FILE, save_trade_to_log
 from utils.option_utils import get_next_option_expiry
@@ -53,45 +53,41 @@ def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_callback=
         print(f"⏰ Checking at {minute} minutes past the hour...")
 
         if regular_close > ha_close:
-            # Bull case: Sell PUT spread
-            option = find_option_by_delta(ib.ib, symbol, expiry, 'P', target_delta=0.20)
-            if not option:
-                print("No suitable PUT option found near delta 0.20.")
+            # Bull case: Sell multiple PUT spreads
+            options = find_options_by_delta(ib.ib, symbol, expiry, 'P', min_delta=0.20, max_delta=0.30)
+            if not options:
+                print("No suitable PUT options found with delta in [0.20, 0.30).")
             else:
-                iv = get_option_iv(ib.ib, option)
-                if not is_iv_favorable(iv):
-                    print("Volatility not favorable for selling PUT spread.")
-                elif abs(abs(option.modelGreeks.delta) - 0.20) <= 0.03:
+                for option, delta in options:
+                    iv = get_option_iv(ib.ib, option)
+                    if not is_iv_favorable(iv):
+                        print(f"Volatility not favorable for PUT {option.strike}.")
+                        continue
                     sell_strike = option.strike
                     buy_strike = sell_strike - 5
                     place_bull_spread_with_oco(
                         ib.ib, symbol, (sell_strike, buy_strike), expiry,
                         account_value * position_scale, trade_log_callback
                     )
-                    print("✅ Sold PUT spread.")
-                    break
-                else:
-                    print(f"PUT delta {option.modelGreeks.delta:.2f} not close enough to 0.20.")
+                    print(f"✅ Sold PUT spread at strike {sell_strike} (delta {delta:.2f})")
         elif regular_close < ha_close:
-            # Bear case: Sell CALL spread
-            option = find_option_by_delta(ib.ib, symbol, expiry, 'C', target_delta=0.20)
-            if not option:
-                print("No suitable CALL option found near delta 0.20.")
+            # Bear case: Sell multiple CALL spreads
+            options = find_options_by_delta(ib.ib, symbol, expiry, 'C', min_delta=0.20, max_delta=0.30)
+            if not options:
+                print("No suitable CALL options found with delta in [0.20, 0.30).")
             else:
-                iv = get_option_iv(ib.ib, option)
-                if not is_iv_favorable(iv):
-                    print("Volatility not favorable for selling CALL spread.")
-                elif abs(abs(option.modelGreeks.delta) - 0.20) <= 0.03:
+                for option, delta in options:
+                    iv = get_option_iv(ib.ib, option)
+                    if not is_iv_favorable(iv):
+                        print(f"Volatility not favorable for CALL {option.strike}.")
+                        continue
                     sell_strike = option.strike
                     buy_strike = sell_strike + 5
                     place_bear_spread_with_oco(
                         ib.ib, symbol, (sell_strike, buy_strike), expiry,
                         account_value * position_scale, trade_log_callback
                     )
-                    print("✅ Sold CALL spread.")
-                    break
-                else:
-                    print(f"CALL delta {option.modelGreeks.delta:.2f} not close enough to 0.20.")
+                    print(f"✅ Sold CALL spread at strike {sell_strike} (delta {delta:.2f})")
         else:
             print("No clear bull or bear case.")
 
