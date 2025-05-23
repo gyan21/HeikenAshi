@@ -8,24 +8,9 @@ import json
 import os
 from utils.trade_utils import log_trade_close, load_open_trades, find_option_by_delta
 from utils.option_utils    import place_bull_spread_with_oco, place_bear_spread_with_oco, get_option_iv
+from utils.logger import TRADE_LOG_FILE, save_trade_to_log
 
 ACCOUNT_VALUE = 100000
-TRADE_LOG_FILE = 'trade_log.json'
-
-def save_trade_to_log(trade_info):
-    log_data = []
-    if os.path.exists(TRADE_LOG_FILE):
-        with open(TRADE_LOG_FILE, 'r') as f:
-            log_data = json.load(f)
-    # Remove any previous "Open" entry for this spread if closing
-    if trade_info.get("status", "").startswith("Exited"):
-        log_data = [t for t in log_data if not (
-            t.get("spread") == trade_info.get("spread") and t.get("status") == "Open"
-        )]
-    log_data.append(trade_info)
-    with open(TRADE_LOG_FILE, 'w') as f:
-        json.dump(log_data, f, indent=2)
-
 def is_time_between(start, end):
     now = datetime.now().time()
     return start <= now <= end

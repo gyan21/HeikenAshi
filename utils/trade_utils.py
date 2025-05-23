@@ -1,6 +1,8 @@
+import datetime
 import os
 import numpy as np
 from ib_insync import Stock, Option
+from logger import save_trade_to_log
 TRADE_LOG_FILE = "trade_log.xlsx"  # or your preferred path/filename
 def log_trade_close(trade, open_price, close_price, quantity, trade_type, status, reason):
     profit = (close_price - open_price) * quantity if trade_type == "bull" else (open_price - close_price) * quantity
