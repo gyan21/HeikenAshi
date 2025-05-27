@@ -3,8 +3,19 @@ import numpy as np
 import asyncio
 from datetime import datetime, date
 import time 
+from ib_insync import LimitOrder
 
+def clean_magic_numbers(order):
+    # Required fields for a basic order that must not be None:
+    REQUIRED_FIELDS = {'totalQuantity', 'orderId', 'clientId', 'permId', 'action', 'orderType', 'lmtPrice', 'transmit'}
+    for key, value in list(order.__dict__.items()):
+        if key not in REQUIRED_FIELDS:
+            if isinstance(value, float) and abs(value) > 1e+307:
+                setattr(order, key, None)
+            if isinstance(value, int) and value > 2e9:
+                setattr(order, key, None)
 
+            
 def get_option_iv(ib, option):
     data = ib.reqMktData(option, '', False, False)
     ib.sleep(1)
@@ -12,12 +23,37 @@ def get_option_iv(ib, option):
     ib.cancelMktData(option)
     return iv
 
+def nuke_vol_fields(order):
+    remove_fields = [
+        'volatility', 'volatilityType', 'deltaNeutralOrderType', 'deltaNeutralVolatility',
+        'delta', 'deltaNeutralAuxPrice', 'deltaNeutralConId', 'deltaNeutralSettlingFirm',
+        'deltaNeutralClearingAccount', 'deltaNeutralClearingIntent', 'deltaNeutralOpenClose',
+        'deltaNeutralShortSale', 'deltaNeutralShortSaleSlot', 'deltaNeutralDesignatedLocation'
+    ]
+    for field in remove_fields:
+        if field in order.__dict__:
+            try:
+                del order.__dict__[field]
+            except Exception:
+                pass
+
+
+def strip_vol_fields(order):
+    for field in ['volatility', 'volatilityType', 'deltaNeutralOrderType', 'deltaNeutralVolatility']:
+        if hasattr(order, field):
+            delattr(order, field)
+            
 def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, trade_log_callback=None):
     from utils.trade_utils import log_trade_close, load_open_trades
     sell_strike, buy_strike = strike_pair
+    # Ensure correct order for bull put spread
+    if sell_strike > buy_strike:
+        sell_strike, buy_strike = buy_strike, sell_strike
+        
     sell_leg = Option(symbol, expiry, sell_strike, 'C', 'SMART')
     buy_leg = Option(symbol, expiry, buy_strike, 'C', 'SMART')
     ib.qualifyContracts(sell_leg, buy_leg)
+    print(f"Sell leg conId: {sell_leg.conId}, Buy leg conId: {buy_leg.conId}")
     combo = Contract(
         symbol=symbol,
         secType='BAG',
@@ -28,7 +64,6 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
             ComboLeg(conId=buy_leg.conId, ratio=1, action='BUY', exchange='SMART')
         ]
     )
-    print(f"Combo conId: {combo.conId}")
     sell_data = ib.reqMktData(sell_leg, '', False, False)
     buy_data = ib.reqMktData(buy_leg, '', False, False)
     ib.sleep(2)
@@ -56,6 +91,9 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         lmtPrice=mid_credit,
         transmit=True
     )
+    nuke_vol_fields(parent_order)
+    # clean_magic_numbers(parent_order)
+    print(vars(parent_order))  # Confirm the keys are clean
     trade = ib.placeOrder(combo, parent_order)
     ib.sleep(2)
     print(trade)
@@ -70,6 +108,9 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         ocaType=1,
         transmit=True
     )
+    nuke_vol_fields(take_profit)
+    # clean_magic_numbers(take_profit)
+    print(vars(take_profit))  # Confirm the keys are clean
     tp_trade = ib.placeOrder(combo, take_profit)
     print(f"📤 Placed spread SELL {sell_strike}C / BUY {buy_strike}C @ {mid_credit}")
     print("🎯 Take-profit set at 0.05")
@@ -96,7 +137,7 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         while True:
             sell_data_live = ib.reqMktData(sell_leg, '', False, False)
             buy_data_live = ib.reqMktData(buy_leg, '', False, False)
-            ib.sleep(2)
+            await asyncio.sleep(2)
             ib.cancelMktData(sell_leg)
             ib.cancelMktData(buy_leg)
             try:
@@ -113,6 +154,9 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
                     totalQuantity=quantity,
                     transmit=True
                 )
+                nuke_vol_fields(close_order)
+                # clean_magic_numbers(close_order)
+                print(vars(close_order))  # Confirm the keys are clean
                 ib.placeOrder(combo, close_order)
                 ib.cancelOrder(tp_trade.order)
                 log_trade_close(
@@ -157,6 +201,9 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
                             totalQuantity=quantity,
                             transmit=True
                         )
+                        nuke_vol_fields(close_order)
+                        # clean_magic_numbers(close_order)
+                        print(vars(close_order))  # Confirm the keys are clean
                         ib.placeOrder(combo, close_order)
                         ib.cancelOrder(tp_trade.order)
                         log_trade_close(
@@ -188,6 +235,9 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
                             totalQuantity=quantity,
                             transmit=True
                         )
+                        nuke_vol_fields(close_order)                        
+                        # clean_magic_numbers(close_order)
+                        print(vars(close_order))  # Confirm the keys are clean
                         ib.placeOrder(combo, close_order)
                         ib.cancelOrder(tp_trade.order)
                         log_trade_close(
@@ -221,13 +271,35 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         "credit": mid_credit,
         "quantity": quantity
     }
+def clean_limit_order(order):
+    # Set fields to None if they are scalar; set to [] if they are lists.
+    fields_none = [
+        'auxPrice', 'volatility', 'minQty', 'percentOffset', 'trailStopPrice',
+        'trailingPercent', 'goodAfterTime', 'goodTillDate'
+    ]
+    fields_list = [
+        'conditions', 'orderComboLegs', 'orderMiscOptions', 'algoParams', 'smartComboRoutingParams'
+    ]
+    for field in fields_none:
+        if hasattr(order, field):
+            setattr(order, field, None)
+    for field in fields_list:
+        if hasattr(order, field):
+            setattr(order, field, [])
+    return order
 
 def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, trade_log_callback=None):
     from utils.trade_utils import log_trade_close, load_open_trades
     sell_strike, buy_strike = strike_pair
+    
+    # Ensure correct order for bull put spread
+    if sell_strike < buy_strike:
+        sell_strike, buy_strike = buy_strike, sell_strike
+        
     sell_leg = Option(symbol, expiry, sell_strike, 'P', 'SMART')
     buy_leg = Option(symbol, expiry, buy_strike, 'P', 'SMART')
     ib.qualifyContracts(sell_leg, buy_leg)
+    print(f"Sell leg conId: {sell_leg.conId}, Buy leg conId: {buy_leg.conId}")
     combo = Contract(
         symbol=symbol,
         secType='BAG',
@@ -238,7 +310,6 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
             ComboLeg(conId=buy_leg.conId, ratio=1, action='BUY', exchange='SMART')
         ]
     )
-    print(f"Combo conId: {combo.conId}")
     sell_data = ib.reqMktData(sell_leg, '', False, False)
     buy_data = ib.reqMktData(buy_leg, '', False, False)
     ib.sleep(2)
@@ -246,6 +317,8 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     buy_theta = getattr(getattr(buy_data, 'modelGreeks', None), 'theta', None)
     ib.cancelMktData(sell_leg)
     ib.cancelMktData(buy_leg)
+    print(f"sell_data bid: {sell_data.bid} ask: {sell_data.ask}")
+    print(f"buy_data bid: {buy_data.bid} ask: {buy_data.ask}")
     try:
         mid_credit = round(((sell_data.bid + sell_data.ask) / 2 - (buy_data.bid + buy_data.ask) / 2), 2)
     except:
@@ -259,13 +332,34 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         print("Theta data not available, will only use price for OCO.")
     max_loss = (sell_strike - buy_strike) - mid_credit
     quantity = max(1, int((account_value * 0.02) // max_loss))
+    lmt_price = -abs(mid_credit) 
     parent_order = Order(
-        action='SELL',
+        action='BUY',
         orderType='LMT',
         totalQuantity=quantity,
-        lmtPrice=mid_credit,
+        lmtPrice = lmt_price + 0.02,  # Adjusted to ensure it's a limit order
+        tif = 'DAY',   # or whatever is appropriate
         transmit=True
     )
+    # clean_magic_numbers(parent_order)
+
+    # parent_order = LimitOrder(
+    #     action='BUY',
+    #     totalQuantity=quantity,
+    #     lmtPrice= lmt_price ,
+    #     tif='DAY',   # or whatever is appropriate
+    #     transmit=True
+    # )
+    parent_order = clean_limit_order(parent_order)    
+    print("SELL strike:", sell_leg.strike, "BUY strike:", buy_leg.strike)
+    print("Mid credit:", mid_credit)
+
+    print(vars(parent_order))
+    # Inside place_bull_spread_with_oco or before placing parent_order:
+    spread_width = abs(sell_strike - buy_strike)
+    if mid_credit >= spread_width:
+        print(f"[ERROR] Riskless combo detected: credit ({mid_credit}) >= width ({spread_width}) -- aborting order.")
+        return None
     trade = ib.placeOrder(combo, parent_order)    
     ib.sleep(2)
     print(trade)
@@ -278,8 +372,12 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         parentId=parent_id,
         ocaGroup=f"{symbol}_OCO",
         ocaType=1,
+        tif='GTC',  # Good 'Til Canceled
         transmit=True
     )
+    nuke_vol_fields(take_profit)
+    # clean_magic_numbers(take_profit)
+    print(vars(take_profit))  # Confirm the keys are clean
     tp_trade = ib.placeOrder(combo, take_profit)
     print(f"📤 Placed spread SELL {sell_strike}P / BUY {buy_strike}P @ {mid_credit}")
     print("🎯 Take-profit set at 0.05")
@@ -306,7 +404,7 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         while True:
             sell_data_live = ib.reqMktData(sell_leg, '', False, False)
             buy_data_live = ib.reqMktData(buy_leg, '', False, False)
-            ib.sleep(2)
+            await asyncio.sleep(2)
             ib.cancelMktData(sell_leg)
             ib.cancelMktData(buy_leg)
             try:
@@ -323,6 +421,9 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
                     totalQuantity=quantity,
                     transmit=True
                 )
+                nuke_vol_fields(close_order)
+                # clean_magic_numbers(close_order)
+                print(vars(close_order))  # Confirm the keys are clean
                 ib.placeOrder(combo, close_order)
                 ib.cancelOrder(tp_trade.order)
                 log_trade_close(
@@ -367,6 +468,9 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
                             totalQuantity=quantity,
                             transmit=True
                         )
+                        nuke_vol_fields(close_order)
+                        # clean_magic_numbers(close_order)
+                        print(vars(close_order))  # Confirm the keys are clean
                         ib.placeOrder(combo, close_order)
                         ib.cancelOrder(tp_trade.order)
                         log_trade_close(
@@ -398,6 +502,9 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
                             totalQuantity=quantity,
                             transmit=True
                         )
+                        nuke_vol_fields(close_order)
+                        # clean_magic_numbers(close_order)
+                        print(vars(close_order))  # Confirm the keys are clean
                         ib.placeOrder(combo, close_order)
                         ib.cancelOrder(tp_trade.order)
                         log_trade_close(
