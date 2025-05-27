@@ -71,6 +71,8 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     buy_theta = getattr(getattr(buy_data, 'modelGreeks', None), 'theta', None)
     ib.cancelMktData(sell_leg)
     ib.cancelMktData(buy_leg)
+    print(f"sell_data bid: {sell_data.bid} ask: {sell_data.ask}")
+    print(f"buy_data bid: {buy_data.bid} ask: {buy_data.ask}")
     try:
         mid_credit = round(((sell_data.bid + sell_data.ask) / 2 - (buy_data.bid + buy_data.ask) / 2), 2)
     except:
@@ -84,16 +86,26 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         print("Theta data not available, will only use price for OCO.")
     max_loss = (buy_strike - sell_strike) - mid_credit
     quantity = max(1, int((account_value * 0.02) // max_loss))
+    lmt_price = -abs(mid_credit)
     parent_order = Order(
-        action='SELL',
+        action='BUY',
         orderType='LMT',
         totalQuantity=quantity,
-        lmtPrice=mid_credit,
+        lmtPrice=lmt_price,  # Adjusted to ensure it's a limit order
+        tif = 'DAY',   # or whatever is appropriate
         transmit=True
     )
-    nuke_vol_fields(parent_order)
     # clean_magic_numbers(parent_order)
+    parent_order = clean_limit_order(parent_order)
+    print("SELL strike:", sell_leg.strike, "BUY strike:", buy_leg.strike)
+    print("Mid credit:", mid_credit)
+    
     print(vars(parent_order))  # Confirm the keys are clean
+        # Inside place_bull_spread_with_oco or before placing parent_order:
+    spread_width = abs(sell_strike - buy_strike)
+    if mid_credit >= spread_width:
+        print(f"[ERROR] Riskless combo detected: credit ({mid_credit}) >= width ({spread_width}) -- aborting order.")
+        return None
     trade = ib.placeOrder(combo, parent_order)
     ib.sleep(2)
     print(trade)
@@ -106,6 +118,7 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         parentId=parent_id,
         ocaGroup=f"{symbol}_OCO",
         ocaType=1,
+        tif='GTC',  # Good 'Til Canceled
         transmit=True
     )
     nuke_vol_fields(take_profit)
@@ -337,7 +350,7 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         action='BUY',
         orderType='LMT',
         totalQuantity=quantity,
-        lmtPrice = lmt_price + 0.02,  # Adjusted to ensure it's a limit order
+        lmtPrice = lmt_price,  # Adjusted to ensure it's a limit order
         tif = 'DAY',   # or whatever is appropriate
         transmit=True
     )
