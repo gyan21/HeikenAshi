@@ -7,11 +7,14 @@ from utils.heikin_ashi import get_regular_and_heikin_ashi_close
 from utils.common_utils import is_dry_run, has_reached_trade_limit
 from utils.trade_utils import load_open_trades
 from utils.option_utils import find_options_by_delta
-from utils.option_utils    import place_bull_spread_with_oco, place_bear_spread_with_oco, get_option_iv
+from utils.option_utils import place_bull_spread_with_oco, place_bear_spread_with_oco, get_option_iv
 from utils.logger import TRADE_LOG_FILE, save_trade_to_log
 from utils.option_utils import get_next_option_expiry
 from utils.trade_utils import is_market_hours
+from utils.option_utils import resume_monitoring_open_trades
+
 ACCOUNT_VALUE = 100000
+
 def is_time_between(start, end):
     now = datetime.now().time()
     return start <= now <= end
@@ -22,7 +25,7 @@ def should_trade_now():
 
 def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_callback=None):
     """
-    Checks the delta of the option at 48, 53, and 57 minutes of the hour,
+    Checks the delta of the option at 47, 52, and 57 minutes of the hour,
     and sells the spread if the sell side option has delta close to 0.20.
     """
     from datetime import datetime
@@ -149,28 +152,6 @@ def get_win_rate_and_position_scale(trade_log_file=TRADE_LOG_FILE):
     position_scale = min(position_scale, max_scale)
     return win_rate, position_scale
 
-def resume_monitoring_open_trades(ib, trade_log_callback=None):
-    open_trades = load_open_trades()
-    for trade in open_trades:
-        symbol = trade["symbol"]
-        sell_strike = float(trade["sell_strike"])
-        buy_strike = float(trade["buy_strike"])
-        expiry = trade["expiry"]
-        quantity = trade["quantity"]
-        open_price = trade["open_price"]
-        spread_type = trade.get("type")
-        # Resume monitoring by calling the appropriate OCO function
-        if spread_type == "bull":
-            place_bull_spread_with_oco(
-                ib, symbol, (sell_strike, buy_strike), expiry,
-                open_price * quantity, trade_log_callback
-            )
-        elif spread_type == "bear":
-            place_bear_spread_with_oco(
-                ib, symbol, (sell_strike, buy_strike), expiry,
-                open_price * quantity, trade_log_callback
-            )
-
 def main():
     if is_dry_run():
         print("🧪 Dry run mode — weekend detected. No trades will be placed.")
@@ -194,7 +175,7 @@ def main():
         print("✅ Using FROZEN market data (after hours)")
 
     # Resume monitoring for open trades
-    resume_monitoring_open_trades(ib_client, save_trade_to_log)
+    resume_monitoring_open_trades(ib_client.ib, trade_log_callback=save_trade_to_log)
 
     symbol = 'SPY'
     expiry = get_next_option_expiry(ib_client.ib, symbol)
