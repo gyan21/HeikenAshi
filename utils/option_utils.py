@@ -55,7 +55,7 @@ async def monitor_stop_trigger(
                 transmit=True
             )
             nuke_vol_fields(close_order)
-            print(vars(close_order))
+            # print(vars(close_order))
             ib.placeOrder(combo, close_order)
             if tp_trade:
                 ib.cancelOrder(tp_trade.order)
@@ -81,7 +81,7 @@ async def monitor_stop_trigger(
             break
 
         # 1-min bar exit (only after 10am)
-        bars = ib.reqHistoricalData(
+        bars = await ib.reqHistoricalDataAsync(
             Stock(symbol, 'SMART', 'USD'),
             endDateTime='',
             durationStr='300 S',  # 5 minutes
@@ -103,7 +103,7 @@ async def monitor_stop_trigger(
                         transmit=True
                     )
                     nuke_vol_fields(close_order)
-                    print(vars(close_order))
+                    # print(vars(close_order))
                     ib.placeOrder(combo, close_order)
                     if tp_trade:
                         ib.cancelOrder(tp_trade.order)
@@ -138,7 +138,7 @@ async def monitor_stop_trigger(
                         transmit=True
                     )
                     nuke_vol_fields(close_order)
-                    print(vars(close_order))
+                    # print(vars(close_order))
                     ib.placeOrder(combo, close_order)
                     if tp_trade:
                         ib.cancelOrder(tp_trade.order)
@@ -268,7 +268,7 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     parent_order = clean_limit_order(parent_order)
     print("SELL strike:", sell_leg.strike, "BUY strike:", buy_leg.strike)
     print("Mid credit:", mid_credit)
-    print(vars(parent_order))
+    # print(vars(parent_order))
     spread_width = abs(sell_strike - buy_strike)
     if mid_credit >= spread_width:
         print(f"[ERROR] Riskless combo detected: credit ({mid_credit}) >= width ({spread_width}) -- aborting order.")
@@ -289,7 +289,7 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         transmit=True
     )
     nuke_vol_fields(take_profit)
-    print(vars(take_profit))
+    # print(vars(take_profit))
     tp_trade = ib.placeOrder(combo, take_profit)
     print(f"📤 Placed spread SELL {sell_strike}P / BUY {buy_strike}P @ {mid_credit}")
     print("🎯 Take-profit set at 0.05")
@@ -378,7 +378,7 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     parent_order = clean_limit_order(parent_order)
     print("SELL strike:", sell_leg.strike, "BUY strike:", buy_leg.strike)
     print("Mid credit:", mid_credit)
-    print(vars(parent_order))
+    # print(vars(parent_order))
     spread_width = abs(sell_strike - buy_strike)
     if mid_credit >= spread_width:
         print(f"[ERROR] Riskless combo detected: credit ({mid_credit}) >= width ({spread_width}) -- aborting order.")
@@ -399,7 +399,7 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         transmit=True
     )
     nuke_vol_fields(take_profit)
-    print(vars(take_profit))
+    # print(vars(take_profit))
     tp_trade = ib.placeOrder(combo, take_profit)
     print(f"📤 Placed spread SELL {sell_strike}C / BUY {buy_strike}C @ {mid_credit}")
     print("🎯 Take-profit set at 0.05")
@@ -596,7 +596,7 @@ def place_call_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     parent_order = clean_limit_order(parent_order)
     print("SELL strike:", sell_leg.strike, "BUY strike:", buy_leg.strike)
     print("Mid credit:", mid_credit)
-    print(vars(parent_order))
+    # print(vars(parent_order))
     spread_width = abs(sell_strike - buy_strike)
     if mid_credit >= spread_width:
         print(f"[ERROR] Riskless combo detected: credit ({mid_credit}) >= width ({spread_width}) -- aborting order.")
@@ -617,7 +617,7 @@ def place_call_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         transmit=True
     )
     nuke_vol_fields(take_profit)
-    print(vars(take_profit))
+    # print(vars(take_profit))
     tp_trade = ib.placeOrder(combo, take_profit)
     print(f"📤 Placed call spread SELL {sell_strike}C / BUY {buy_strike}C @ {mid_credit}")
     print("🎯 Take-profit set at 0.05")
