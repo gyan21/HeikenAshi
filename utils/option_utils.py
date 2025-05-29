@@ -383,6 +383,8 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     if mid_credit >= spread_width:
         print(f"[ERROR] Riskless combo detected: credit ({mid_credit}) >= width ({spread_width}) -- aborting order.")
         return None
+    if(not should_trade_now()):
+        return None
     trade = ib.placeOrder(combo, parent_order)
     ib.sleep(2)
     print(trade)
@@ -652,3 +654,12 @@ def place_call_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         "credit": mid_credit,
         "quantity": quantity
     }
+
+def should_trade_now():
+    from datetime import time
+    return is_time_between(time(15, 45), time(16, 0))
+    # return 1
+
+def is_time_between(start, end):
+    now = datetime.now().time()
+    return start <= now <= end

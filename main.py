@@ -6,7 +6,7 @@ from utils.ibkr_client import IBKRClient
 from utils.heikin_ashi import get_regular_and_heikin_ashi_close
 from utils.common_utils import is_dry_run, has_reached_trade_limit
 from utils.trade_utils import load_open_trades
-from utils.option_utils import find_options_by_delta
+from utils.option_utils import find_options_by_delta, should_trade_now
 from utils.option_utils import place_bull_spread_with_oco, place_bear_spread_with_oco, get_option_iv
 from utils.logger import TRADE_LOG_FILE, save_trade_to_log
 from utils.option_utils import get_next_option_expiry
@@ -14,14 +14,6 @@ from utils.trade_utils import is_market_hours
 from utils.option_utils import resume_monitoring_open_trades
 
 ACCOUNT_VALUE = 100000
-
-def is_time_between(start, end):
-    now = datetime.now().time()
-    return start <= now <= end
-
-def should_trade_now():
-    # return is_time_between(dtime(15, 45), dtime(16, 0))
-    return 1
 
 def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_callback=None):
     """
@@ -41,16 +33,15 @@ def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_callback=
     regular_close, ha_close = get_regular_and_heikin_ashi_close(ib.ib, symbol)
     print(f"Regular close: {regular_close}, Heikin Ashi close: {ha_close}")
 
-    # Minutes to check: 47, 52, 57
     check_minutes = [47, 52, 57]
     already_tried = set()
 
     while True:
         now = datetime.now()
         minute = now.minute
-        # Gyanesh if minute in check_minutes and minute not in already_tried:
-        already_tried.add(minute)
-        print(f"⏰ Checking at {minute} minutes past the hour...")
+        if minute in check_minutes and minute not in already_tried:
+            already_tried.add(minute)
+            print(f"⏰ Checking at {minute} minutes past the hour...")
 
         if regular_close > ha_close:
             # Bull case: Sell multiple PUT spreads
@@ -185,7 +176,7 @@ def main():
         return
 
     # Run strategy every minute during trading window
-    while should_trade_now():
+    while 1:
         run_combined_strategy(ib_client, symbol, expiry, ACCOUNT_VALUE, save_trade_to_log)
         time.sleep(60)
 
