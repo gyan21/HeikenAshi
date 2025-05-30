@@ -43,28 +43,7 @@ def is_market_hours():
     import pytz
     eastern = pytz.timezone('US/Eastern')
     now = datetime.now(eastern).time()
-    return dtime(9, 30) <= now <= dtime(16, 0)
-
-async def resume_monitoring_open_trades(ib, trade_log_callback=None):
-    open_trades = load_open_trades()
-    for trade in open_trades:
-        symbol = trade["symbol"]
-        sell_strike = float(trade["sell_strike"])
-        buy_strike = float(trade["buy_strike"])
-        expiry = trade["expiry"]
-        quantity = trade["quantity"]
-        open_price = trade["open_price"]
-        spread_type = trade.get("type")
-        if spread_type == "bull":
-            place_bull_spread_with_oco(
-                ib, symbol, (sell_strike, buy_strike), expiry,
-                open_price * quantity, trade_log_callback
-            )
-        elif spread_type == "bear":
-            place_bear_spread_with_oco(
-                ib, symbol, (sell_strike, buy_strike), expiry,
-                open_price * quantity, trade_log_callback
-            )
+    return dtime(9, 30) <= now <= dtime(16, 15)
 
 def log_trade_close(trade, open_price, close_price, quantity, trade_type, status, reason):
     profit = (close_price - open_price) * quantity if trade_type == "bull" else (open_price - close_price) * quantity

@@ -148,10 +148,6 @@ def main():
         print("🧪 Dry run mode — weekend detected. No trades will be placed.")
         return
 
-    if has_reached_trade_limit():
-        print("⚠️ Trade limit reached for today. Exiting.")
-        return
-
     ib_client = IBKRClient()
     if not ib_client.connect():
         print("❌ Could not connect to IBKR.")

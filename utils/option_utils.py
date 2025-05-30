@@ -35,6 +35,8 @@ async def monitor_stop_trigger(
     from utils.trade_utils import log_trade_close
     print(f"📡 Resumed monitoring for {symbol} {sell_strike}/{buy_strike} {expiry}")
     while True:
+        
+        print(f"📡TRIAL>>>> Resumed monitoring for {symbol} {sell_strike}/{buy_strike} {expiry}")
         sell_data_live = ib.reqMktData(sell_leg, '', False, False)
         buy_data_live = ib.reqMktData(buy_leg, '', False, False)
         await asyncio.sleep(2)
@@ -291,6 +293,7 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     nuke_vol_fields(take_profit)
     # print(vars(take_profit))
     tp_trade = ib.placeOrder(combo, take_profit)
+    tp_order_id = tp_trade.order.orderId
     print(f"📤 Placed spread SELL {sell_strike}P / BUY {buy_strike}P @ {mid_credit}")
     print("🎯 Take-profit set at 0.05")
     log_entry = {
@@ -306,6 +309,7 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         "close_reason": "Pending TP/OCO",
         "status": "Open",
         "order_id": parent_id,
+        "tp_order_id": tp_order_id,
         "theta_diff": theta_diff
     }
     if trade_log_callback:
@@ -403,6 +407,7 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     nuke_vol_fields(take_profit)
     # print(vars(take_profit))
     tp_trade = ib.placeOrder(combo, take_profit)
+    tp_order_id = tp_trade.order.orderId
     print(f"📤 Placed spread SELL {sell_strike}C / BUY {buy_strike}C @ {mid_credit}")
     print("🎯 Take-profit set at 0.05")
     log_entry = {
@@ -418,6 +423,7 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         "close_reason": "Pending TP/OCO",
         "status": "Open",
         "order_id": parent_id,
+        "tp_order_id": tp_order_id,
         "theta_diff": theta_diff
     }
     if trade_log_callback:
@@ -464,7 +470,14 @@ def resume_monitoring_open_trades(ib, trade_log_callback=None):
                 ComboLeg(conId=buy_leg.conId, ratio=1, action='BUY', exchange='SMART')
             ]
         )
-        tp_trade = None  # Not reconstructing take-profit order here
+        tp_order_id = trade.get("tp_order_id")
+        tp_trade = None
+        if tp_order_id:
+            # Find the trade/order by orderId
+            for t in ib.trades():
+                if t.order.orderId == tp_order_id:
+                    tp_trade = t
+                    break
         loop = asyncio.get_event_loop()
         loop.create_task(
             monitor_stop_trigger(
@@ -543,117 +556,6 @@ def find_options_by_delta(ib, symbol, expiry=None, right='C', min_delta=0.20, ma
     if not matching_options:
         print(f"[INFO] No options found for {symbol} {expiry} {right} in delta range [{min_delta}, {max_delta})")
     return matching_options
-
-def place_call_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, trade_log_callback=None):
-    from utils.trade_utils import log_trade_close
-    sell_strike, buy_strike = strike_pair
-    # For a bear call spread: sell lower, buy higher
-    if sell_strike > buy_strike:
-        sell_strike, buy_strike = buy_strike, sell_strike
-    sell_leg = Option(symbol, expiry, sell_strike, 'C', 'SMART')
-    buy_leg = Option(symbol, expiry, buy_strike, 'C', 'SMART')
-    ib.qualifyContracts(sell_leg, buy_leg)
-    print(f"Sell leg conId: {sell_leg.conId}, Buy leg conId: {buy_leg.conId}")
-    combo = Contract(
-        symbol=symbol,
-        secType='BAG',
-        currency='USD',
-        exchange='SMART',
-        comboLegs=[
-            ComboLeg(conId=sell_leg.conId, ratio=1, action='SELL', exchange='SMART'),
-            ComboLeg(conId=buy_leg.conId, ratio=1, action='BUY', exchange='SMART')
-        ]
-    )
-    sell_data = ib.reqMktData(sell_leg, '', False, False)
-    buy_data = ib.reqMktData(buy_leg, '', False, False)
-    ib.sleep(2)
-    sell_theta = getattr(getattr(sell_data, 'modelGreeks', None), 'theta', None)
-    buy_theta = getattr(getattr(buy_data, 'modelGreeks', None), 'theta', None)
-    ib.cancelMktData(sell_leg)
-    ib.cancelMktData(buy_leg)
-    print(f"sell_data bid: {sell_data.bid} ask: {sell_data.ask}")
-    print(f"buy_data bid: {buy_data.bid} ask: {buy_data.ask}")
-    try:
-        mid_credit = round(((sell_data.bid + sell_data.ask) / 2 - (buy_data.bid + buy_data.ask) / 2), 2)
-    except:
-        mid_credit = 0.5
-    if mid_credit <= 0: mid_credit = 0.5
-    theta_diff = None
-    if sell_theta is not None and buy_theta is not None:
-        theta_diff = abs(sell_theta - buy_theta)
-        print(f"Theta difference for OCO: {theta_diff:.4f}")
-    else:
-        print("Theta data not available, will only use price for OCO.")
-    max_loss = (buy_strike - sell_strike) - mid_credit
-    quantity = max(1, int((account_value * 0.02) // max_loss))
-    lmt_price = -abs(mid_credit)
-    parent_order = Order(
-        action='SELL',
-        orderType='LMT',
-        totalQuantity=quantity,
-        lmtPrice=lmt_price,
-        tif='DAY',
-        transmit=True
-    )
-    parent_order = clean_limit_order(parent_order)
-    print("SELL strike:", sell_leg.strike, "BUY strike:", buy_leg.strike)
-    print("Mid credit:", mid_credit)
-    # print(vars(parent_order))
-    spread_width = abs(sell_strike - buy_strike)
-    if mid_credit >= spread_width:
-        print(f"[ERROR] Riskless combo detected: credit ({mid_credit}) >= width ({spread_width}) -- aborting order.")
-        return None
-    trade = ib.placeOrder(combo, parent_order)
-    ib.sleep(2)
-    print(trade)
-    parent_id = trade.order.orderId
-    take_profit = Order(
-        action='BUY',
-        orderType='LMT',
-        totalQuantity=quantity,
-        lmtPrice=0.05,
-        parentId=parent_id,
-        ocaGroup=f"{symbol}_OCO",
-        ocaType=1,
-        tif='GTC',
-        transmit=True
-    )
-    nuke_vol_fields(take_profit)
-    # print(vars(take_profit))
-    tp_trade = ib.placeOrder(combo, take_profit)
-    print(f"📤 Placed call spread SELL {sell_strike}C / BUY {buy_strike}C @ {mid_credit}")
-    print("🎯 Take-profit set at 0.05")
-    log_entry = {
-        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
-        "type": "call",
-        "symbol": symbol,
-        "sell_strike": sell_strike,
-        "buy_strike": buy_strike,
-        "expiry": expiry,
-        "open_price": mid_credit,
-        "quantity": quantity,
-        "close_reason": "Pending TP/OCO",
-        "status": "Open",
-        "order_id": parent_id,
-        "theta_diff": theta_diff
-    }
-    if trade_log_callback:
-        trade_log_callback(log_entry)
-    save_open_trade(log_entry)
-    loop = asyncio.get_event_loop()
-    loop.create_task(
-        monitor_stop_trigger(
-            ib, combo, sell_leg, buy_leg, symbol, sell_strike, buy_strike, expiry, quantity,
-            tp_trade, mid_credit, "call", theta_diff, parent_id, trade_log_callback
-        )
-    )
-    return {
-        "spread": f"{symbol}_{sell_strike}_{buy_strike}_{expiry}",
-        "order_id": parent_id,
-        "credit": mid_credit,
-        "quantity": quantity
-    }
 
 def should_trade_now():
     from datetime import time
