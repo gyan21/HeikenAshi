@@ -165,6 +165,7 @@ async def monitor_stop_trigger(
                     remove_open_trade(parent_id)
                     break
         await asyncio.sleep(60)
+from utils.async_runner import get_loop
 
 def clean_magic_numbers(order):
     REQUIRED_FIELDS = {'totalQuantity', 'orderId', 'clientId', 'permId', 'action', 'orderType', 'lmtPrice', 'transmit'}
@@ -314,6 +315,7 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     }
     if trade_log_callback:
         trade_log_callback(log_entry)
+
     save_open_trade(log_entry)
     loop = asyncio.get_event_loop()
     loop.create_task(
@@ -322,6 +324,7 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
             tp_trade, mid_credit, "bull", theta_diff, parent_id, trade_log_callback
         )
     )
+
     return {
         "spread": f"{symbol}_{sell_strike}_{buy_strike}_{expiry}",
         "order_id": parent_id,
@@ -436,6 +439,7 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
             tp_trade, mid_credit, "bear", theta_diff, parent_id, trade_log_callback
         )
     )
+
     return {
         "spread": f"{symbol}_{sell_strike}_{buy_strike}_{expiry}",
         "order_id": parent_id,
