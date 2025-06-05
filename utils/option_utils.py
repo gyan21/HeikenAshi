@@ -2,8 +2,9 @@ from ib_insync import Option, Contract, ComboLeg, Order, Stock
 import numpy as np
 import asyncio
 from datetime import datetime, date
-import time 
+import time
 from ib_insync import LimitOrder
+from utils.async_runner import get_loop
 
 def clean_magic_numbers(order):
     # Required fields for a basic order that must not be None:
@@ -275,8 +276,8 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
             await asyncio.sleep(60)
 
     import asyncio
-    loop = asyncio.get_event_loop()
-    loop.create_task(monitor_stop_trigger())
+    loop = get_loop()
+    asyncio.run_coroutine_threadsafe(monitor_stop_trigger(), loop)
 
     return {
         "spread": f"{symbol}_{sell_strike}_{buy_strike}_{expiry}",
@@ -542,8 +543,8 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
             await asyncio.sleep(60)
 
     import asyncio
-    loop = asyncio.get_event_loop()
-    loop.create_task(monitor_stop_trigger())
+    loop = get_loop()
+    asyncio.run_coroutine_threadsafe(monitor_stop_trigger(), loop)
 
     return {
         "spread": f"{symbol}_{sell_strike}_{buy_strike}_{expiry}",
