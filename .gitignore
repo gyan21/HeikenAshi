@@ -11,3 +11,5 @@ test_bull_put_spread.py
 test_bull_put_spread.py
 analysis_report.xlsx
 trade_log.json
+trade_log.xlsx
+open_trades.json
