@@ -11,6 +11,7 @@ from utils.option_utils    import place_bull_spread_with_oco, place_bear_spread_
 from utils.logger import TRADE_LOG_FILE, save_trade_to_log
 from utils.option_utils import get_next_option_expiry
 from utils.trade_utils import is_market_hours
+from utils.async_runner import start_background_loop
 ACCOUNT_VALUE = 100000
 def is_time_between(start, end):
     now = datetime.now().time()
@@ -172,6 +173,8 @@ def resume_monitoring_open_trades(ib, trade_log_callback=None):
             )
 
 def main():
+    # Start asyncio loop in background so monitor_stop_trigger coroutines run
+    start_background_loop()
     if is_dry_run():
         print("🧪 Dry run mode — weekend detected. No trades will be placed.")
         return
