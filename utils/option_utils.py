@@ -33,7 +33,7 @@ async def monitor_stop_trigger(
     tp_trade, mid_credit, trade_type, theta_diff, parent_id, trade_log_callback
 ):
     from utils.trade_utils import log_trade_close
-    print(f"📡 Resumed monitoring for {symbol} {sell_strike}/{buy_strike} {expiry}")
+    print(f"📡 GYANESH>> Resumed monitoring for {symbol} {sell_strike}/{buy_strike} {expiry}")
     while True:
         
         print(f"📡TRIAL>>>> Resumed monitoring for {symbol} {sell_strike}/{buy_strike} {expiry}")
@@ -556,11 +556,14 @@ def find_options_by_delta(ib, symbol, expiry=None, right='C', min_delta=0.20, ma
     if not matching_options:
         print(f"[INFO] No options found for {symbol} {expiry} {right} in delta range [{min_delta}, {max_delta})")
     return matching_options
-
+counter = 0
 def should_trade_now():
     from datetime import time
-    return is_time_between(time(15, 45), time(16, 0))
-    # return 1
+    # return is_time_between(time(15, 45), time(16, 0))
+    global counter
+    if counter < 2:
+        counter += 1
+        return 1
 
 def is_time_between(start, end):
     now = datetime.now().time()
