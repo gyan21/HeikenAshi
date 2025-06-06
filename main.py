@@ -16,10 +16,14 @@ ACCOUNT_VALUE = 100000
 def is_time_between(start, end):
     now = datetime.now().time()
     return start <= now <= end
-
+counter = 0
 def should_trade_now():
+    global counter
     # return is_time_between(dtime(15, 45), dtime(16, 0))
-    return 1
+    if( counter < 3):
+        counter += 1
+        return True
+    return False
 
 def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_callback=None):
     """
@@ -197,7 +201,7 @@ def main():
         print("✅ Using FROZEN market data (after hours)")
 
     # Resume monitoring for open trades
-    resume_monitoring_open_trades(ib_client, save_trade_to_log)
+    resume_monitoring_open_trades(ib_client.ib, save_trade_to_log)
 
     symbol = 'SPY'
     expiry = get_next_option_expiry(ib_client.ib, symbol)
