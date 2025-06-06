@@ -82,3 +82,17 @@ def log_trade_close(trade, open_price, close_price, quantity, trade_type, status
 def save_open_trades(trades):
     with open("open_trades.json", "w", encoding="utf-8") as f:
         json.dump(trades, f, indent=2)
+
+def remove_open_trade(symbol, sell_strike, buy_strike, expiry):
+    trades = load_open_trades()
+    filtered = [
+        t for t in trades
+        if not (
+            t.get("symbol") == symbol
+            and float(t.get("sell_strike")) == float(sell_strike)
+            and float(t.get("buy_strike")) == float(buy_strike)
+            and t.get("expiry") == expiry
+        )
+    ]
+    if len(filtered) != len(trades):
+        save_open_trades(filtered)
