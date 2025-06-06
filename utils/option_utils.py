@@ -45,7 +45,7 @@ def strip_vol_fields(order):
             delattr(order, field)
             
 def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, trade_log_callback=None):
-    from utils.trade_utils import log_trade_close, load_open_trades
+    from utils.trade_utils import log_trade_close, load_open_trades, save_open_trades, remove_open_trade
     sell_strike, buy_strike = strike_pair
     # Ensure correct order for bull put spread
     if sell_strike > buy_strike:
@@ -129,6 +129,29 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     print(f"📤 Placed spread SELL {sell_strike}C / BUY {buy_strike}C @ {mid_credit}")
     print("🎯 Take-profit set at 0.05")
 
+    def on_tp_filled(trade, fill):
+        log_trade_close(
+            trade={"spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}"},
+            open_price=mid_credit,
+            close_price=fill.execution.price if fill else 0.05,
+            quantity=quantity,
+            trade_type="bear",
+            status="Exited take profit",
+            reason="Take profit hit",
+        )
+        if trade_log_callback:
+            trade_log_callback({
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
+                "open_price": mid_credit,
+                "close_reason": "Take profit hit",
+                "status": "Exited take profit",
+                "quantity": quantity,
+            })
+        remove_open_trade(symbol, sell_strike, buy_strike, expiry)
+
+    tp_trade.filledEvent += on_tp_filled
+
     # Log the open trade with all necessary info for resuming
     log_entry = {
         "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -145,6 +168,10 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     }
     if trade_log_callback:
         trade_log_callback(log_entry)
+    # Persist open trade for restart support
+    open_trades = load_open_trades()
+    open_trades.append(log_entry)
+    save_open_trades(open_trades)
 
     async def monitor_stop_trigger():
         print(f"📡 Watching 1-min close for stop above/below short strike and theta diff OCO")
@@ -191,6 +218,7 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
                         "status": "Exited by theta diff",
                         "quantity": quantity
                     })
+                remove_open_trade(symbol, sell_strike, buy_strike, expiry)
                 break
 
             # 1-min bar exit (only after 10am)
@@ -238,6 +266,7 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
                                 "status": "Exited manually",
                                 "quantity": quantity
                             })
+                        remove_open_trade(symbol, sell_strike, buy_strike, expiry)
                         break
                 else:
                     # Bull spread: stop if price < sell_strike
@@ -272,6 +301,7 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
                                 "status": "Exited manually",
                                 "quantity": quantity
                             })
+                        remove_open_trade(symbol, sell_strike, buy_strike, expiry)
                         break
             await asyncio.sleep(60)
 
@@ -303,7 +333,7 @@ def clean_limit_order(order):
     return order
 
 def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, trade_log_callback=None):
-    from utils.trade_utils import log_trade_close, load_open_trades
+    from utils.trade_utils import log_trade_close, load_open_trades, save_open_trades, remove_open_trade
     sell_strike, buy_strike = strike_pair
     
     # Ensure correct order for bull put spread
@@ -396,6 +426,29 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     print(f"📤 Placed spread SELL {sell_strike}P / BUY {buy_strike}P @ {mid_credit}")
     print("🎯 Take-profit set at 0.05")
 
+    def on_tp_filled(trade, fill):
+        log_trade_close(
+            trade={"spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}"},
+            open_price=mid_credit,
+            close_price=fill.execution.price if fill else 0.05,
+            quantity=quantity,
+            trade_type="bull",
+            status="Exited take profit",
+            reason="Take profit hit",
+        )
+        if trade_log_callback:
+            trade_log_callback({
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
+                "open_price": mid_credit,
+                "close_reason": "Take profit hit",
+                "status": "Exited take profit",
+                "quantity": quantity,
+            })
+        remove_open_trade(symbol, sell_strike, buy_strike, expiry)
+
+    tp_trade.filledEvent += on_tp_filled
+
     # Log the open trade with all necessary info for resuming
     log_entry = {
         "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -412,6 +465,9 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     }
     if trade_log_callback:
         trade_log_callback(log_entry)
+    open_trades = load_open_trades()
+    open_trades.append(log_entry)
+    save_open_trades(open_trades)
 
     async def monitor_stop_trigger():
         print(f"📡 Watching 1-min close for stop under {sell_strike} and theta diff OCO")
@@ -458,6 +514,7 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
                         "status": "Exited by theta diff",
                         "quantity": quantity
                     })
+                remove_open_trade(symbol, sell_strike, buy_strike, expiry)
                 break
 
             # 1-min bar exit (only after 10am)
@@ -500,11 +557,12 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
                             trade_log_callback({
                                 "date": now.strftime("%Y-%m-%d %H:%M:%S"),
                                 "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
-                                "open_price": mid_credit,
-                                "close_reason": "1-min close above short strike",
-                                "status": "Exited manually",
-                                "quantity": quantity
-                            })
+                            "open_price": mid_credit,
+                            "close_reason": "1-min close above short strike",
+                            "status": "Exited manually",
+                            "quantity": quantity
+                        })
+                        remove_open_trade(symbol, sell_strike, buy_strike, expiry)
                         break
                 else:
                     # Bull spread: stop if price < sell_strike
@@ -534,11 +592,12 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
                             trade_log_callback({
                                 "date": now.strftime("%Y-%m-%d %H:%M:%S"),
                                 "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
-                                "open_price": mid_credit,
-                                "close_reason": "1-min close below short strike",
-                                "status": "Exited manually",
-                                "quantity": quantity
-                            })
+                            "open_price": mid_credit,
+                            "close_reason": "1-min close below short strike",
+                            "status": "Exited manually",
+                            "quantity": quantity
+                        })
+                        remove_open_trade(symbol, sell_strike, buy_strike, expiry)
                         break
             await asyncio.sleep(60)
 
