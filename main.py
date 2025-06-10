@@ -1,6 +1,7 @@
 import time
 import json
 import os
+import threading
 from datetime import datetime, time as dtime, timedelta
 from utils.ibkr_client import IBKRClient
 from utils.heikin_ashi import get_regular_and_heikin_ashi_close
@@ -12,6 +13,7 @@ from utils.logger import TRADE_LOG_FILE, save_trade_to_log
 from utils.option_utils import get_next_option_expiry
 from utils.trade_utils import is_market_hours
 from utils.option_utils import resume_monitoring_open_trades
+from datetime import datetime
 
 ACCOUNT_VALUE = 100000
 
@@ -20,7 +22,7 @@ def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_callback=
     Checks the delta of the option at 47, 52, and 57 minutes of the hour,
     and sells the spread if the sell side option has delta close to 0.20.
     """
-    from datetime import datetime
+    print(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + f"Running combined strategy for {symbol} with expiry {expiry}...")
 
     # Only run during the allowed window
     if not should_trade_now():
@@ -36,50 +38,47 @@ def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_callback=
     check_minutes = [47, 52, 57]
     already_tried = set()
 
-    while True:
-        now = datetime.now()
-        minute = now.minute
-        if minute in check_minutes and minute not in already_tried:
-            already_tried.add(minute)
-            print(f"⏰ Checking at {minute} minutes past the hour...")
+    now = datetime.now()
+    minute = now.minute
+    if minute in check_minutes and minute not in already_tried:
+        already_tried.add(minute)
+        print(f"⏰ Checking at {minute} minutes past the hour...")
 
-        if regular_close > ha_close:
-            # Bull case: Sell multiple PUT spreads
-            options = find_options_by_delta(ib.ib, symbol, expiry, 'P', min_delta=0.20, max_delta=0.30)
-            if not options:
-                print("No suitable PUT options found with delta in [0.20, 0.30).")
-            else:
-                for option, delta in options:
-                    sell_strike = option.strike
-                    buy_strike = sell_strike - 5
-                    place_bull_spread_with_oco(
-                        ib.ib, symbol, (sell_strike, buy_strike), expiry,
-                        account_value * position_scale, trade_log_callback
-                    )
-                    print(f"✅ Sold PUT spread at strike {sell_strike} (delta {delta:.2f})")
-        elif regular_close < ha_close:
-            # Bear case: Sell multiple CALL spreads
-            options = find_options_by_delta(ib.ib, symbol, expiry, 'C', min_delta=0.20, max_delta=0.30)
-            if not options:
-                print("No suitable CALL options found with delta in [0.20, 0.30).")
-            else:
-                for option, delta in options:
-                    sell_strike = option.strike
-                    buy_strike = sell_strike + 5
-                    place_bear_spread_with_oco(
-                        ib.ib, symbol, (sell_strike, buy_strike), expiry,
-                        account_value * position_scale, trade_log_callback
-                    )
-                    print(f"✅ Sold CALL spread at strike {sell_strike} (delta {delta:.2f})")
+    if regular_close > ha_close:
+        # Bull case: Sell multiple PUT spreads
+        options = find_options_by_delta(ib.ib, symbol, expiry, 'P', min_delta=0.20, max_delta=0.30)
+        if not options:
+            print("No suitable PUT options found with delta in [0.20, 0.30).")
         else:
-            print("No clear bull or bear case.")
+            for option, delta in options:
+                sell_strike = option.strike
+                buy_strike = sell_strike - 5
+                place_bull_spread_with_oco(
+                    ib.ib, symbol, (sell_strike, buy_strike), expiry,
+                    account_value * position_scale, trade_log_callback
+                )
+                print(f"✅ Sold PUT spread at strike {sell_strike} (delta {delta:.2f})")
+    elif regular_close < ha_close:
+        # Bear case: Sell multiple CALL spreads
+        options = find_options_by_delta(ib.ib, symbol, expiry, 'C', min_delta=0.20, max_delta=0.30)
+        if not options:
+            print("No suitable CALL options found with delta in [0.20, 0.30).")
+        else:
+            for option, delta in options:
+                sell_strike = option.strike
+                buy_strike = sell_strike + 5
+                place_bear_spread_with_oco(
+                    ib.ib, symbol, (sell_strike, buy_strike), expiry,
+                    account_value * position_scale, trade_log_callback
+                )
+                print(f"✅ Sold CALL spread at strike {sell_strike} (delta {delta:.2f})")
+    else:
+        print("No clear bull or bear case.")
 
-        # Exit loop if all minutes have been checked or time window is over
-        if len(already_tried) == len(check_minutes) or not should_trade_now():
-            print("Finished all checks or trading window ended.")
-            break
-
-        time.sleep(20) # Check every 20 seconds for the next minute
+    # Exit loop if all minutes have been checked or time window is over
+    if len(already_tried) == len(check_minutes) or not should_trade_now():
+        print("Finished all checks or trading window ended.")
+    
 
 def get_win_rate_and_position_scale(trade_log_file=TRADE_LOG_FILE):
     """
@@ -144,10 +143,9 @@ def get_win_rate_and_position_scale(trade_log_file=TRADE_LOG_FILE):
     return win_rate, position_scale
 
 def main():
-    if is_dry_run():
-        print("🧪 Dry run mode — weekend detected. No trades will be placed.")
-        return
-
+    while datetime.now().second != 0:
+        time.sleep(0.1)
+        
     ib_client = IBKRClient()
     if not ib_client.connect():
         print("❌ Could not connect to IBKR.")
@@ -162,15 +160,15 @@ def main():
         print("✅ Using FROZEN market data (after hours)")
 
     # Resume monitoring for open trades
-    resume_monitoring_open_trades(ib_client.ib, trade_log_callback=save_trade_to_log)
-
+    task_thread = threading.Thread(target = resume_monitoring_open_trades, args = (ib_client.ib, save_trade_to_log), daemon = True)
+    task_thread.start()
     symbol = 'SPY'
     expiry = get_next_option_expiry(ib_client.ib, symbol)
     print(f"Next option expiry: {expiry}")
     if not expiry:
         print("❌ Could not find a valid option expiry.")
         return
-
+       
     # Run strategy every minute during trading window
     while 1:
         run_combined_strategy(ib_client, symbol, expiry, ACCOUNT_VALUE, save_trade_to_log)

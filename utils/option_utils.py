@@ -7,6 +7,9 @@ import json
 import os
 
 OPEN_TRADES_FILE = "open_trades.json"
+QUANTITY = 1  # Default quantity for trades, can be adjusted
+RISK_PERCENTAGE = 0.02  # Default risk percentage for trades
+
 
 def save_open_trade(trade):
     trades = load_open_trades()
@@ -33,138 +36,131 @@ async def monitor_stop_trigger(
     tp_trade, mid_credit, trade_type, theta_diff, parent_id, trade_log_callback
 ):
     from utils.trade_utils import log_trade_close
-    print(f"📡 GYANESH>> Resumed monitoring for {symbol} {sell_strike}/{buy_strike} {expiry}")
-    while True:
-        
-        print(f"📡TRIAL>>>> Resumed monitoring for {symbol} {sell_strike}/{buy_strike} {expiry}")
-        sell_data_live = ib.reqMktData(sell_leg, '', False, False)
-        buy_data_live = ib.reqMktData(buy_leg, '', False, False)
-        await asyncio.sleep(2)
-        ib.cancelMktData(sell_leg)
-        ib.cancelMktData(buy_leg)
-        try:
-            spread_price = round(((sell_data_live.bid + sell_data_live.ask) / 2 - (buy_data_live.bid + buy_data_live.ask) / 2), 2)
-        except:
-            spread_price = None
+    print(f"📡TRIAL>>>> Resumed monitoring for {symbol} {sell_strike}/{buy_strike} {expiry}")
+    sell_data_live = ib.reqMktData(sell_leg, '', False, False)
+    buy_data_live = ib.reqMktData(buy_leg, '', False, False)
+    await asyncio.sleep(2)
+    ib.cancelMktData(sell_leg)
+    ib.cancelMktData(buy_leg)
+    try:
+        spread_price = round(((sell_data_live.bid + sell_data_live.ask) / 2 - (buy_data_live.bid + buy_data_live.ask) / 2), 2)
+    except:
+        spread_price = None
 
-        # Theta diff exit (any time)
-        if theta_diff is not None and spread_price is not None and spread_price < theta_diff:
-            print(f"🛑 Spread price {spread_price} < theta diff {theta_diff:.4f}, closing spread.")
-            close_order = Order(
-                action='BUY',
-                orderType='MKT',
-                totalQuantity=quantity,
-                transmit=True
-            )
-            nuke_vol_fields(close_order)
-            # print(vars(close_order))
-            ib.placeOrder(combo, close_order)
-            if tp_trade:
-                ib.cancelOrder(tp_trade.order)
-            log_trade_close(
-                trade={"spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}"},
-                open_price=mid_credit,
-                close_price=spread_price if spread_price is not None else 0,
-                quantity=quantity,
-                trade_type=trade_type,
-                status="Exited by theta diff",
-                reason="Spread price < theta difference"
-            )
-            if trade_log_callback:
-                trade_log_callback({
-                    "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
-                    "open_price": mid_credit,
-                    "close_reason": "Spread price < theta difference",
-                    "status": "Exited by theta diff",
-                    "quantity": quantity
-                })
-            remove_open_trade(parent_id)
-            break
-
-        # 1-min bar exit (only after 10am)
-        bars = await ib.reqHistoricalDataAsync(
-            Stock(symbol, 'SMART', 'USD'),
-            endDateTime='',
-            durationStr='300 S',  # 5 minutes
-            barSizeSetting='1 min',
-            whatToShow='TRADES',
-            useRTH=True,
-            formatDate=1
+    # Theta diff exit (any time)
+    if theta_diff is not None and spread_price is not None and spread_price < theta_diff:
+        print(f"🛑 Spread price {spread_price} < theta diff {theta_diff:.4f}, closing spread.")
+        close_order = Order(
+            action='BUY',
+            orderType='MKT',
+            totalQuantity=quantity,
+            transmit=True
         )
-        now = datetime.now()
-        if now.hour >= 10:
-            if sell_leg.right == 'C':
-                # Bear spread: stop if price > sell_strike
-                if bars and bars[-1].close > sell_strike:
-                    print(f"🛑 1-min close > {sell_strike} detected at {bars[-1].close}")
-                    close_order = Order(
-                        action='BUY',
-                        orderType='MKT',
-                        totalQuantity=quantity,
-                        transmit=True
-                    )
-                    nuke_vol_fields(close_order)
-                    # print(vars(close_order))
-                    ib.placeOrder(combo, close_order)
-                    if tp_trade:
-                        ib.cancelOrder(tp_trade.order)
-                    log_trade_close(
-                        trade={"spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}"},
-                        open_price=mid_credit,
-                        close_price=bars[-1].close,
-                        quantity=quantity,
-                        trade_type="bear",
-                        status="Exited manually",
-                        reason="1-min close above short strike"
-                    )
-                    if trade_log_callback:
-                        trade_log_callback({
-                            "date": now.strftime("%Y-%m-%d %H:%M:%S"),
-                            "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
-                            "open_price": mid_credit,
-                            "close_reason": "1-min close above short strike",
-                            "status": "Exited manually",
-                            "quantity": quantity
-                        })
-                    remove_open_trade(parent_id)
-                    break
-            else:
-                # Bull spread: stop if price < sell_strike
-                if bars and bars[-1].close < sell_strike:
-                    print(f"🛑 1-min close < {sell_strike} detected at {bars[-1].close}")
-                    close_order = Order(
-                        action='BUY',
-                        orderType='MKT',
-                        totalQuantity=quantity,
-                        transmit=True
-                    )
-                    nuke_vol_fields(close_order)
-                    # print(vars(close_order))
-                    ib.placeOrder(combo, close_order)
-                    if tp_trade:
-                        ib.cancelOrder(tp_trade.order)
-                    log_trade_close(
-                        trade={"spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}"},
-                        open_price=mid_credit,
-                        close_price=bars[-1].close,
-                        quantity=quantity,
-                        trade_type="bull",
-                        status="Exited manually",
-                        reason="1-min close below short strike"
-                    )
-                    if trade_log_callback:
-                        trade_log_callback({
-                            "date": now.strftime("%Y-%m-%d %H:%M:%S"),
-                            "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
-                            "open_price": mid_credit,
-                            "close_reason": "1-min close below short strike",
-                            "status": "Exited manually",
-                            "quantity": quantity
-                        })
-                    remove_open_trade(parent_id)
-                    break
-        await asyncio.sleep(60)
+        nuke_vol_fields(close_order)
+        # print(vars(close_order))
+        ib.placeOrder(combo, close_order)
+        if tp_trade:
+            ib.cancelOrder(tp_trade.order)
+        log_trade_close(
+            trade={"spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}"},
+            open_price=mid_credit,
+            close_price=spread_price if spread_price is not None else 0,
+            quantity=quantity,
+            trade_type=trade_type,
+            status="Exited by theta diff",
+            reason="Spread price < theta difference"
+        )
+        if trade_log_callback:
+            trade_log_callback({
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
+                "open_price": mid_credit,
+                "close_reason": "Spread price < theta difference",
+                "status": "Exited by theta diff",
+                "quantity": quantity
+            })
+        remove_open_trade(parent_id)
+
+    # 1-min bar exit (only after 10am)
+    bars = await ib.reqHistoricalDataAsync(
+        Stock(symbol, 'SMART', 'USD'),
+        endDateTime='',
+        durationStr='300 S',  # 5 minutes
+        barSizeSetting='1 min',
+        whatToShow='TRADES',
+        useRTH=True,
+        formatDate=1
+    )
+    now = datetime.now()
+    if now.hour >= 10:
+        if sell_leg.right == 'C':
+            # Bear spread: stop if price > sell_strike
+            if bars and bars[-1].close > sell_strike:
+                print(f"🛑 1-min close > {sell_strike} detected at {bars[-1].close}")
+                close_order = Order(
+                    action='BUY',
+                    orderType='MKT',
+                    totalQuantity=quantity,
+                    transmit=True
+                )
+                nuke_vol_fields(close_order)
+                # print(vars(close_order))
+                ib.placeOrder(combo, close_order)
+                if tp_trade:
+                    ib.cancelOrder(tp_trade.order)
+                log_trade_close(
+                    trade={"spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}"},
+                    open_price=mid_credit,
+                    close_price=bars[-1].close,
+                    quantity=quantity,
+                    trade_type="bear",
+                    status="Exited manually",
+                    reason="1-min close above short strike"
+                )
+                if trade_log_callback:
+                    trade_log_callback({
+                        "date": now.strftime("%Y-%m-%d %H:%M:%S"),
+                        "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
+                        "open_price": mid_credit,
+                        "close_reason": "1-min close above short strike",
+                        "status": "Exited manually",
+                        "quantity": quantity
+                    })
+                remove_open_trade(parent_id)
+        else:
+            # Bull spread: stop if price < sell_strike
+            if bars and bars[-1].close < sell_strike:
+                print(f"🛑 1-min close < {sell_strike} detected at {bars[-1].close}")
+                close_order = Order(
+                    action='BUY',
+                    orderType='MKT',
+                    totalQuantity=quantity,
+                    transmit=True
+                )
+                nuke_vol_fields(close_order)
+                # print(vars(close_order))
+                ib.placeOrder(combo, close_order)
+                if tp_trade:
+                    ib.cancelOrder(tp_trade.order)
+                log_trade_close(
+                    trade={"spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}"},
+                    open_price=mid_credit,
+                    close_price=bars[-1].close,
+                    quantity=quantity,
+                    trade_type="bull",
+                    status="Exited manually",
+                    reason="1-min close below short strike"
+                )
+                if trade_log_callback:
+                    trade_log_callback({
+                        "date": now.strftime("%Y-%m-%d %H:%M:%S"),
+                        "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
+                        "open_price": mid_credit,
+                        "close_reason": "1-min close below short strike",
+                        "status": "Exited manually",
+                        "quantity": quantity
+                    })
+                remove_open_trade(parent_id)
 
 def clean_magic_numbers(order):
     REQUIRED_FIELDS = {'totalQuantity', 'orderId', 'clientId', 'permId', 'action', 'orderType', 'lmtPrice', 'transmit'}
@@ -177,7 +173,7 @@ def clean_magic_numbers(order):
 
 def get_option_iv(ib, option):
     data = ib.reqMktData(option, '', False, False)
-    ib.sleep(1)
+    ib.sleep(2)
     iv = getattr(getattr(data, 'modelGreeks', None), 'impliedVol', None)
     ib.cancelMktData(option)
     return iv
@@ -257,7 +253,8 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     else:
         print("Theta data not available, will only use price for OCO.")
     max_loss = (sell_strike - buy_strike) - mid_credit
-    quantity = max(1, int((account_value * 0.02) // max_loss))
+    quantity = max(1, int((account_value * RISK_PERCENT) // max_loss))
+    quantity = QUANTITY
     lmt_price = -abs(mid_credit)
     parent_order = Order(
         action='BUY',
@@ -315,13 +312,13 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     if trade_log_callback:
         trade_log_callback(log_entry)
     save_open_trade(log_entry)
-    loop = asyncio.get_event_loop()
-    loop.create_task(
-        monitor_stop_trigger(
-            ib, combo, sell_leg, buy_leg, symbol, sell_strike, buy_strike, expiry, quantity,
-            tp_trade, mid_credit, "bull", theta_diff, parent_id, trade_log_callback
-        )
-    )
+    # loop = asyncio.get_event_loop()
+    # loop.create_task(
+    #     monitor_stop_trigger(
+    #         ib, combo, sell_leg, buy_leg, symbol, sell_strike, buy_strike, expiry, quantity,
+    #         tp_trade, mid_credit, "bull", theta_diff, parent_id, trade_log_callback
+    #     )
+    # )
     return {
         "spread": f"{symbol}_{sell_strike}_{buy_strike}_{expiry}",
         "order_id": parent_id,
@@ -369,7 +366,8 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     else:
         print("Theta data not available, will only use price for OCO.")
     max_loss = (buy_strike - sell_strike) - mid_credit
-    quantity = max(1, int((account_value * 0.02) // max_loss))
+    quantity = max(1, int((account_value * RISK_PERCENTAGE) // max_loss))
+    quantity = QUANTITY
     lmt_price = -abs(mid_credit)
     parent_order = Order(
         action='BUY',
@@ -429,13 +427,13 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     if trade_log_callback:
         trade_log_callback(log_entry)
     save_open_trade(log_entry)
-    loop = asyncio.get_event_loop()
-    loop.create_task(
-        monitor_stop_trigger(
-            ib, combo, sell_leg, buy_leg, symbol, sell_strike, buy_strike, expiry, quantity,
-            tp_trade, mid_credit, "bear", theta_diff, parent_id, trade_log_callback
-        )
-    )
+    # loop = asyncio.get_event_loop()
+    # loop.create_task(
+    #     monitor_stop_trigger(
+    #         ib, combo, sell_leg, buy_leg, symbol, sell_strike, buy_strike, expiry, quantity,
+    #         tp_trade, mid_credit, "bear", theta_diff, parent_id, trade_log_callback
+    #     )
+    # )
     return {
         "spread": f"{symbol}_{sell_strike}_{buy_strike}_{expiry}",
         "order_id": parent_id,
@@ -445,47 +443,48 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
 
 
 def resume_monitoring_open_trades(ib, trade_log_callback=None):
-    open_trades = load_open_trades()
-    for trade in open_trades:
-        symbol = trade["symbol"]
-        sell_strike = float(trade["sell_strike"])
-        buy_strike = float(trade["buy_strike"])
-        expiry = trade["expiry"]
-        quantity = int(trade["quantity"])
-        trade_type = trade.get("type", "bull")
-        mid_credit = trade.get("open_price", 0)
-        parent_id = trade.get("order_id")
-        theta_diff = trade.get("theta_diff")
-        right = 'P' if trade_type == "bull" else 'C'
-        sell_leg = Option(symbol, expiry, sell_strike, right, 'SMART')
-        buy_leg = Option(symbol, expiry, buy_strike, right, 'SMART')
-        ib.qualifyContracts(sell_leg, buy_leg)
-        combo = Contract(
-            symbol=symbol,
-            secType='BAG',
-            currency='USD',
-            exchange='SMART',
-            comboLegs=[
-                ComboLeg(conId=sell_leg.conId, ratio=1, action='SELL', exchange='SMART'),
-                ComboLeg(conId=buy_leg.conId, ratio=1, action='BUY', exchange='SMART')
-            ]
-        )
-        tp_order_id = trade.get("tp_order_id")
-        tp_trade = None
-        if tp_order_id:
-            # Find the trade/order by orderId
-            for t in ib.trades():
-                if t.order.orderId == tp_order_id:
-                    tp_trade = t
-                    break
-        loop = asyncio.get_event_loop()
-        loop.create_task(
+    while True:
+        print(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " THREAD-Resuming monitoring for open trades...")
+        open_trades = load_open_trades()    
+        for trade in open_trades:
+            symbol = trade["symbol"]
+            sell_strike = float(trade["sell_strike"])
+            buy_strike = float(trade["buy_strike"])
+            expiry = trade["expiry"]
+            quantity = int(trade["quantity"])
+            trade_type = trade.get("type", "bull")
+            mid_credit = trade.get("open_price", 0)
+            parent_id = trade.get("order_id")
+            theta_diff = trade.get("theta_diff")
+            right = 'P' if trade_type == "bull" else 'C'
+            sell_leg = Option(symbol, expiry, sell_strike, right, 'SMART')
+            buy_leg = Option(symbol, expiry, buy_strike, right, 'SMART')
+            ib.qualifyContracts(sell_leg, buy_leg)
+            combo = Contract(
+                symbol=symbol,
+                secType='BAG',
+                currency='USD',
+                exchange='SMART',
+                comboLegs=[
+                    ComboLeg(conId=sell_leg.conId, ratio=1, action='SELL', exchange='SMART'),
+                    ComboLeg(conId=buy_leg.conId, ratio=1, action='BUY', exchange='SMART')
+                ]
+            )
+            tp_order_id = trade.get("tp_order_id")
+            tp_trade = None
+            if tp_order_id:
+                # Find the trade/order by orderId
+                for t in ib.trades():
+                    if t.order.orderId == tp_order_id:
+                        tp_trade = t
+                        break
             monitor_stop_trigger(
                 ib, combo, sell_leg, buy_leg, symbol, sell_strike, buy_strike, expiry, quantity,
                 tp_trade, mid_credit, trade_type, theta_diff, parent_id, trade_log_callback
             )
-        )
-
+        time.sleep(60)  # Sleep to avoid busy loop
+            
+    
 def get_next_option_expiry(ib, symbol):
     contract = Stock(symbol, 'SMART', 'USD')
     ib.qualifyContracts(contract)
@@ -519,7 +518,7 @@ def find_options_by_delta(ib, symbol, expiry=None, right='C', min_delta=0.20, ma
         print(f"[WARN] No valid expiry found for {symbol}")
         return []
     ticker = ib.reqMktData(contract, '', False, False)
-    ib.sleep(1)
+    ib.sleep(2)
     price = ticker.marketPrice() if hasattr(ticker, 'marketPrice') else None
     ib.cancelMktData(contract)
     if price is None or price <= 0:
