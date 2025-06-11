@@ -2,9 +2,9 @@ from ib_insync import Option, Contract, ComboLeg, Order, Stock
 import numpy as np
 import asyncio
 from datetime import datetime, date
-import time
 import json
 import os
+import time
 
 OPEN_TRADES_FILE = "open_trades.json"
 QUANTITY = 1  # Default quantity for trades, can be adjusted
@@ -16,19 +16,19 @@ def save_open_trade(trade):
     # Avoid duplicates
     if not any(t.get("order_id") == trade.get("order_id") for t in trades):
         trades.append(trade)
-        with open(OPEN_TRADES_FILE, "w") as f:
+        with open(OPEN_TRADES_FILE, "w", encoding="utf-8") as f:
             json.dump(trades, f, indent=2)
 
 def remove_open_trade(order_id):
     trades = load_open_trades()
     trades = [t for t in trades if t.get("order_id") != order_id]
-    with open(OPEN_TRADES_FILE, "w") as f:
+    with open(OPEN_TRADES_FILE, "w", encoding="utf-8") as f:
         json.dump(trades, f, indent=2)
 
 def load_open_trades():
     if not os.path.exists(OPEN_TRADES_FILE):
         return []
-    with open(OPEN_TRADES_FILE, "r") as f:
+    with open(OPEN_TRADES_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
 async def monitor_stop_trigger(
@@ -36,7 +36,9 @@ async def monitor_stop_trigger(
     tp_trade, mid_credit, trade_type, theta_diff, parent_id, trade_log_callback
 ):
     from utils.trade_utils import log_trade_close
-    print(f"📡TRIAL>>>> Resumed monitoring for {symbol} {sell_strike}/{buy_strike} {expiry}")
+    print(datetime.now().strftime("%Y-%m-%d %H:%M:%S") +    
+          f" monitor_stop_trigger Monitoring {trade_type} spread {symbol} {sell_strike}/{buy_strike} {expiry}...")
+        
     sell_data_live = ib.reqMktData(sell_leg, '', False, False)
     buy_data_live = ib.reqMktData(buy_leg, '', False, False)
     await asyncio.sleep(2)
@@ -213,14 +215,14 @@ def clean_limit_order(order):
             setattr(order, field, [])
     return order
 
-def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, trade_log_callback=None):
+async def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, trade_log_callback=None):
     from utils.trade_utils import log_trade_close
     sell_strike, buy_strike = strike_pair
     if sell_strike < buy_strike:
         sell_strike, buy_strike = buy_strike, sell_strike
     sell_leg = Option(symbol, expiry, sell_strike, 'P', 'SMART')
     buy_leg = Option(symbol, expiry, buy_strike, 'P', 'SMART')
-    ib.qualifyContracts(sell_leg, buy_leg)
+    await ib.qualifyContractsAsync(sell_leg, buy_leg)
     print(f"Sell leg conId: {sell_leg.conId}, Buy leg conId: {buy_leg.conId}")
     combo = Contract(
         symbol=symbol,
@@ -234,7 +236,7 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     )
     sell_data = ib.reqMktData(sell_leg, '', False, False)
     buy_data = ib.reqMktData(buy_leg, '', False, False)
-    ib.sleep(2)
+    await asyncio.sleep(2)
     sell_theta = getattr(getattr(sell_data, 'modelGreeks', None), 'theta', None)
     buy_theta = getattr(getattr(buy_data, 'modelGreeks', None), 'theta', None)
     ib.cancelMktData(sell_leg)
@@ -253,7 +255,7 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     else:
         print("Theta data not available, will only use price for OCO.")
     max_loss = (sell_strike - buy_strike) - mid_credit
-    quantity = max(1, int((account_value * RISK_PERCENT) // max_loss))
+    quantity = max(1, int((account_value * RISK_PERCENTAGE) // max_loss))
     quantity = QUANTITY
     lmt_price = -abs(mid_credit)
     parent_order = Order(
@@ -273,7 +275,7 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         print(f"[ERROR] Riskless combo detected: credit ({mid_credit}) >= width ({spread_width}) -- aborting order.")
         return None
     trade = ib.placeOrder(combo, parent_order)
-    ib.sleep(2)
+    await asyncio.sleep(2)
     print(trade)
     parent_id = trade.order.orderId
     take_profit = Order(
@@ -319,6 +321,11 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     #         tp_trade, mid_credit, "bull", theta_diff, parent_id, trade_log_callback
     #     )
     # )
+    asyncio.create_task(
+        monitor_stop_trigger(
+            ib, combo, sell_leg, buy_leg, symbol, sell_strike, buy_strike, expiry, quantity,
+            tp_trade, mid_credit, "bull", theta_diff, parent_id, trade_log_callback)
+        )
     return {
         "spread": f"{symbol}_{sell_strike}_{buy_strike}_{expiry}",
         "order_id": parent_id,
@@ -326,14 +333,14 @@ def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
         "quantity": quantity
     }
 
-def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, trade_log_callback=None):
+async def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, trade_log_callback=None):
     from utils.trade_utils import log_trade_close
     sell_strike, buy_strike = strike_pair
     if sell_strike > buy_strike:
         sell_strike, buy_strike = buy_strike, sell_strike
     sell_leg = Option(symbol, expiry, sell_strike, 'C', 'SMART')
     buy_leg = Option(symbol, expiry, buy_strike, 'C', 'SMART')
-    ib.qualifyContracts(sell_leg, buy_leg)
+    await ib.qualifyContractsAsync(sell_leg, buy_leg)
     print(f"Sell leg conId: {sell_leg.conId}, Buy leg conId: {buy_leg.conId}")
     combo = Contract(
         symbol=symbol,
@@ -347,7 +354,7 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     )
     sell_data = ib.reqMktData(sell_leg, '', False, False)
     buy_data = ib.reqMktData(buy_leg, '', False, False)
-    ib.sleep(2)
+    await asyncio.sleep(2)
     sell_theta = getattr(getattr(sell_data, 'modelGreeks', None), 'theta', None)
     buy_theta = getattr(getattr(buy_data, 'modelGreeks', None), 'theta', None)
     ib.cancelMktData(sell_leg)
@@ -388,7 +395,7 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     if(not should_trade_now()):
         return None
     trade = ib.placeOrder(combo, parent_order)
-    ib.sleep(2)
+    await asyncio.sleep(2)
     print(trade)
     parent_id = trade.order.orderId
     take_profit = Order(
@@ -434,6 +441,11 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     #         tp_trade, mid_credit, "bear", theta_diff, parent_id, trade_log_callback
     #     )
     # )
+    asyncio.create_task(
+        monitor_stop_trigger(
+            ib, combo, sell_leg, buy_leg, symbol, sell_strike, buy_strike, expiry, quantity,
+            tp_trade, mid_credit, "bear", theta_diff, parent_id, trade_log_callback)
+    )
     return {
         "spread": f"{symbol}_{sell_strike}_{buy_strike}_{expiry}",
         "order_id": parent_id,
@@ -442,53 +454,53 @@ def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, t
     }
 
 
-def resume_monitoring_open_trades(ib, trade_log_callback=None):
-    while True:
-        print(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " THREAD-Resuming monitoring for open trades...")
-        open_trades = load_open_trades()    
-        for trade in open_trades:
-            symbol = trade["symbol"]
-            sell_strike = float(trade["sell_strike"])
-            buy_strike = float(trade["buy_strike"])
-            expiry = trade["expiry"]
-            quantity = int(trade["quantity"])
-            trade_type = trade.get("type", "bull")
-            mid_credit = trade.get("open_price", 0)
-            parent_id = trade.get("order_id")
-            theta_diff = trade.get("theta_diff")
-            right = 'P' if trade_type == "bull" else 'C'
-            sell_leg = Option(symbol, expiry, sell_strike, right, 'SMART')
-            buy_leg = Option(symbol, expiry, buy_strike, right, 'SMART')
-            ib.qualifyContracts(sell_leg, buy_leg)
-            combo = Contract(
-                symbol=symbol,
-                secType='BAG',
-                currency='USD',
-                exchange='SMART',
-                comboLegs=[
-                    ComboLeg(conId=sell_leg.conId, ratio=1, action='SELL', exchange='SMART'),
-                    ComboLeg(conId=buy_leg.conId, ratio=1, action='BUY', exchange='SMART')
-                ]
-            )
-            tp_order_id = trade.get("tp_order_id")
-            tp_trade = None
-            if tp_order_id:
-                # Find the trade/order by orderId
-                for t in ib.trades():
-                    if t.order.orderId == tp_order_id:
-                        tp_trade = t
-                        break
+async def resume_monitoring_open_trades(ib, trade_log_callback=None):
+    print(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " THREAD-Resuming monitoring for open trades...")
+    open_trades = load_open_trades()    
+    for trade in open_trades:
+        symbol = trade["symbol"]
+        sell_strike = float(trade["sell_strike"])
+        buy_strike = float(trade["buy_strike"])
+        expiry = trade["expiry"]
+        quantity = int(trade["quantity"])
+        trade_type = trade.get("type", "bull")
+        mid_credit = trade.get("open_price", 0)
+        parent_id = trade.get("order_id")
+        theta_diff = trade.get("theta_diff")
+        right = 'P' if trade_type == "bull" else 'C'
+        sell_leg = Option(symbol, expiry, sell_strike, right, 'SMART')
+        buy_leg = Option(symbol, expiry, buy_strike, right, 'SMART')
+        await ib.qualifyContractsAsync(sell_leg, buy_leg)
+        combo = Contract(
+            symbol=symbol,
+            secType='BAG',
+            currency='USD',
+            exchange='SMART',
+            comboLegs=[
+                ComboLeg(conId=sell_leg.conId, ratio=1, action='SELL', exchange='SMART'),
+                ComboLeg(conId=buy_leg.conId, ratio=1, action='BUY', exchange='SMART')
+            ]
+        )
+        tp_order_id = trade.get("tp_order_id")
+        tp_trade = None
+        if tp_order_id:
+            # Find the trade/order by orderId
+            for t in ib.trades():
+                if t.order.orderId == tp_order_id:
+                    tp_trade = t
+                    break
+        asyncio.create_task(
             monitor_stop_trigger(
                 ib, combo, sell_leg, buy_leg, symbol, sell_strike, buy_strike, expiry, quantity,
                 tp_trade, mid_credit, trade_type, theta_diff, parent_id, trade_log_callback
             )
-        time.sleep(60)  # Sleep to avoid busy loop
-            
+        )
+
     
-def get_next_option_expiry(ib, symbol):
+async def get_next_option_expiry(ib, symbol):
     contract = Stock(symbol, 'SMART', 'USD')
-    ib.qualifyContracts(contract)
-    chains = ib.reqSecDefOptParams(contract.symbol, '', contract.secType, contract.conId)
+    await ib.qualifyContractsAsync(contract)
+    chains = await ib.reqSecDefOptParamsAsync(contract.symbol, '', contract.secType, contract.conId)
     if not chains:
         return None
     expiries = sorted(list(set(chains[0].expirations)))
@@ -499,10 +511,10 @@ def get_next_option_expiry(ib, symbol):
             return expiry_str
     return None
 
-def find_options_by_delta(ib, symbol, expiry=None, right='C', min_delta=0.20, max_delta=0.30):
+async def find_options_by_delta(ib, symbol, expiry=None, right='C', min_delta=0.20, max_delta=0.30):
     contract = Stock(symbol, 'SMART', 'USD')
-    ib.qualifyContracts(contract)
-    chain = ib.reqSecDefOptParams(contract.symbol, '', contract.secType, contract.conId)
+    await ib.qualifyContractsAsync(contract)
+    chain = await ib.reqSecDefOptParamsAsync(contract.symbol, '', contract.secType, contract.conId)
     if not chain:
         print(f"[WARN] No option chain found for {symbol}")
         return []
@@ -518,14 +530,14 @@ def find_options_by_delta(ib, symbol, expiry=None, right='C', min_delta=0.20, ma
         print(f"[WARN] No valid expiry found for {symbol}")
         return []
     ticker = ib.reqMktData(contract, '', False, False)
-    ib.sleep(2)
+    await asyncio.sleep(2)
     price = ticker.marketPrice() if hasattr(ticker, 'marketPrice') else None
     ib.cancelMktData(contract)
     if price is None or price <= 0:
         print(f"[WARN] Could not get current price for {symbol}")
         return []
     from ib_insync import Option
-    details = ib.reqContractDetails(Option(symbol, expiry, 0, right, 'SMART'))
+    details = await ib.reqContractDetailsAsync(Option(symbol, expiry, 0, right, 'SMART'))
     valid_strikes = sorted({cd.contract.strike for cd in details if abs(cd.contract.strike - price) <= 10})
     if not valid_strikes:
         print(f"[WARN] No valid strikes found for {symbol} {expiry} {right}")
@@ -540,9 +552,9 @@ def find_options_by_delta(ib, symbol, expiry=None, right='C', min_delta=0.20, ma
     for idx in strike_range:
         strike = valid_strikes[idx]
         option = Option(symbol, expiry, strike, right, 'SMART')
-        ib.qualifyContracts(option)
+        await ib.qualifyContractsAsync(option)
         data = ib.reqMktData(option, '', False, False)
-        ib.sleep(2)
+        await asyncio.sleep(2)
         delta = getattr(getattr(data, 'modelGreeks', None), 'delta', None)
         ib.cancelMktData(option)
         if data.modelGreeks is None:
@@ -559,10 +571,10 @@ counter = 0
 def should_trade_now():
     from datetime import time
     # return is_time_between(time(15, 45), time(16, 0))
-    global counter
-    if counter < 2:
-        counter += 1
-        return 1
+    # global counter
+    # if counter < 2:
+    #     counter += 1
+    return 1
 
 def is_time_between(start, end):
     now = datetime.now().time()

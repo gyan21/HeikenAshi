@@ -1,7 +1,7 @@
+import asyncio
 import time
 import json
 import os
-import threading
 from datetime import datetime, time as dtime, timedelta
 from utils.ibkr_client import IBKRClient
 from utils.heikin_ashi import get_regular_and_heikin_ashi_close
@@ -13,16 +13,15 @@ from utils.logger import TRADE_LOG_FILE, save_trade_to_log
 from utils.option_utils import get_next_option_expiry
 from utils.trade_utils import is_market_hours
 from utils.option_utils import resume_monitoring_open_trades
-from datetime import datetime
 
 ACCOUNT_VALUE = 100000
 
-def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_callback=None):
+async def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_callback=None):
     """
     Checks the delta of the option at 47, 52, and 57 minutes of the hour,
     and sells the spread if the sell side option has delta close to 0.20.
     """
-    print(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + f"Running combined strategy for {symbol} with expiry {expiry}...")
+    print(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + f" Running combined strategy for {symbol} with expiry {expiry}...")
 
     # Only run during the allowed window
     if not should_trade_now():
@@ -32,7 +31,7 @@ def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_callback=
     win_rate, position_scale = get_win_rate_and_position_scale()
     print(f"Win rate (last 2 weeks): {win_rate:.1f}%. Position scale: {position_scale*100:.0f}% of account value.")
 
-    regular_close, ha_close = get_regular_and_heikin_ashi_close(ib.ib, symbol)
+    regular_close, ha_close = await get_regular_and_heikin_ashi_close(ib.ib, symbol)
     print(f"Regular close: {regular_close}, Heikin Ashi close: {ha_close}")
 
     check_minutes = [47, 52, 57]
@@ -46,14 +45,14 @@ def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_callback=
 
     if regular_close > ha_close:
         # Bull case: Sell multiple PUT spreads
-        options = find_options_by_delta(ib.ib, symbol, expiry, 'P', min_delta=0.20, max_delta=0.30)
+        options = await find_options_by_delta(ib.ib, symbol, expiry, 'P', min_delta=0.20, max_delta=0.30)
         if not options:
             print("No suitable PUT options found with delta in [0.20, 0.30).")
         else:
             for option, delta in options:
                 sell_strike = option.strike
                 buy_strike = sell_strike - 5
-                place_bull_spread_with_oco(
+                await place_bull_spread_with_oco(
                     ib.ib, symbol, (sell_strike, buy_strike), expiry,
                     account_value * position_scale, trade_log_callback
                 )
@@ -67,7 +66,7 @@ def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_callback=
             for option, delta in options:
                 sell_strike = option.strike
                 buy_strike = sell_strike + 5
-                place_bear_spread_with_oco(
+                await place_bear_spread_with_oco(
                     ib.ib, symbol, (sell_strike, buy_strike), expiry,
                     account_value * position_scale, trade_log_callback
                 )
@@ -93,7 +92,7 @@ def get_win_rate_and_position_scale(trade_log_file=TRADE_LOG_FILE):
     if not os.path.exists(trade_log_file):
         return 0.0, position_scale
 
-    with open(trade_log_file, 'r') as f:
+    with open(trade_log_file, 'r', encoding="utf-8") as f:
         trades = json.load(f)
 
     # Only consider closed trades
@@ -142,37 +141,50 @@ def get_win_rate_and_position_scale(trade_log_file=TRADE_LOG_FILE):
     position_scale = min(position_scale, max_scale)
     return win_rate, position_scale
 
-def main():
-    while datetime.now().second != 0:
-        time.sleep(0.1)
+async def run_strategy_periodically(ib_client, symbol, expiry, interval=60):
+    """Run strategy every X seconds"""
+    while True:
+        try:
+            if not is_dry_run() and should_trade_now():
+                await run_combined_strategy(ib_client, symbol, expiry, ACCOUNT_VALUE, save_trade_to_log)
+                print(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " Strategy executed")
+        except Exception as e:
+            print(f"Error in strategy execution: {e}")
+        await asyncio.sleep(interval)
         
+async def main():
     ib_client = IBKRClient()
-    if not ib_client.connect():
+    if not await ib_client.connect():
         print("❌ Could not connect to IBKR.")
         return
 
-    # Set market data type based on market hours
-    if is_market_hours():
-        ib_client.ib.reqMarketDataType(1)  # Live
-        print("✅ Using LIVE market data")
-    else:
-        ib_client.ib.reqMarketDataType(2)  # Frozen
-        print("✅ Using FROZEN market data (after hours)")
-
-    # Resume monitoring for open trades
-    task_thread = threading.Thread(target = resume_monitoring_open_trades, args = (ib_client.ib, save_trade_to_log), daemon = True)
-    task_thread.start()
     symbol = 'SPY'
-    expiry = get_next_option_expiry(ib_client.ib, symbol)
+    expiry = await get_next_option_expiry(ib_client.ib, symbol)
     print(f"Next option expiry: {expiry}")
     if not expiry:
         print("❌ Could not find a valid option expiry.")
         return
-       
-    # Run strategy every minute during trading window
-    while 1:
-        run_combined_strategy(ib_client, symbol, expiry, ACCOUNT_VALUE, save_trade_to_log)
-        time.sleep(60)
+
+    # Start monitoring and strategy tasks
+    monitoring_task = asyncio.create_task(
+        resume_monitoring_open_trades(ib_client.ib, save_trade_to_log)
+    )
+    strategy_task = asyncio.create_task(
+        run_strategy_periodically(ib_client, symbol, expiry)
+    )
+
+    try:
+        await asyncio.gather(monitoring_task, strategy_task)
+    except asyncio.CancelledError:
+        print("Shutting down gracefully...")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+    finally:
+        ib_client.disconnect()
+        print("Disconnected from IBKR")
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Program stopped by user")

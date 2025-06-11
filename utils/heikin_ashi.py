@@ -14,10 +14,10 @@ def calculate_heikin_ashi(candles):
         ha.append(type('Bar', (object,), dict(open=ha_open, close=ha_close, high=ha_high, low=ha_low)))
     return ha
 
-def get_regular_and_heikin_ashi_close(ib: IB, symbol: str):
+async def get_regular_and_heikin_ashi_close(ib: IB, symbol: str):
     contract = Stock(symbol, 'SMART', 'USD')
-    ib.qualifyContracts(contract)
-    bars = ib.reqHistoricalData(
+    await ib.qualifyContractsAsync(contract)
+    bars = await ib.reqHistoricalDataAsync(
         contract,
         # endDateTime=datetime.now().strftime("%Y%m%d %H:%M:%S"),
         endDateTime='',
