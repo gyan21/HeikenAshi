@@ -21,7 +21,7 @@ async def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_cal
     Checks the delta of the option at 47, 52, and 57 minutes of the hour,
     and sells the spread if the sell side option has delta close to 0.20.
     """
-    print(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + f" Running combined strategy for {symbol} with expiry {expiry}...")
+    print(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + f" run_combined_strategy for {symbol} with expiry {expiry}...")
 
     # Only run during the allowed window
     if not should_trade_now():
@@ -59,7 +59,7 @@ async def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_cal
                 print(f"✅ Sold PUT spread at strike {sell_strike} (delta {delta:.2f})")
     elif regular_close < ha_close:
         # Bear case: Sell multiple CALL spreads
-        options = find_options_by_delta(ib.ib, symbol, expiry, 'C', min_delta=0.20, max_delta=0.30)
+        options = await find_options_by_delta(ib.ib, symbol, expiry, 'C', min_delta=0.20, max_delta=0.30)
         if not options:
             print("No suitable CALL options found with delta in [0.20, 0.30).")
         else:

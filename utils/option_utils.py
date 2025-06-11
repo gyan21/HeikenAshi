@@ -225,6 +225,66 @@ def clean_limit_order(order):
             setattr(order, field, [])
     return order
 
+async def place_and_save_when_filled(
+    ib, combo, order, quantity, symbol, sell_strike, buy_strike, mid_credit, expiry,
+    sell_leg, buy_leg, theta_diff, trade_Type, trade_log_callback=None):
+    
+    print(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + f" place_and_save_when_filled for {symbol} with expiry {expiry}...")
+    if not should_trade_now():
+        return None
+    # Place the order
+    trade = ib.placeOrder(combo, order)
+    # Wait for fill or terminal status
+    while trade.orderStatus.status not in ("Filled", "ApiCancelled", "Cancelled", "Inactive"):
+        await asyncio.sleep(1)
+    parent_id = trade.order.orderId
+
+    if trade.orderStatus.status == "Filled":
+        # Now place the take-profit order
+        take_profit = Order(
+            action='BUY',
+            orderType='LMT',
+            totalQuantity=quantity,
+            lmtPrice=0.05,
+            parentId=parent_id,
+            ocaGroup=f"{symbol}_OCO",
+            ocaType=1,
+            tif='GTC',
+            transmit=True
+        )
+        nuke_vol_fields(take_profit)
+        tp_trade = ib.placeOrder(combo, take_profit)
+        tp_order_id = tp_trade.order.orderId
+
+        log_entry = {
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
+            "type": trade_Type,
+            "symbol": symbol,
+            "sell_strike": sell_strike,
+            "buy_strike": buy_strike,
+            "expiry": expiry,
+            "open_price": mid_credit,
+            "quantity": quantity,
+            "close_reason": "Pending TP/OCO",
+            "status": "Open",
+            "order_id": parent_id,
+            "tp_order_id": tp_order_id,
+            "theta_diff": theta_diff
+        }
+        if trade_log_callback:
+            trade_log_callback(log_entry)
+        save_open_trade(log_entry)
+        print(f"✅ Trade {trade.order.orderId} filled and saved.")
+        asyncio.create_task(
+            monitor_stop_trigger(
+                ib, combo, sell_leg, buy_leg, symbol, sell_strike, buy_strike, expiry, quantity,
+                tp_trade, mid_credit, trade_Type, theta_diff, parent_id, trade_log_callback
+            )
+        )
+    else:
+        print(f"⚠️ Trade {trade.order.orderId} not filled (status: {trade.orderStatus.status}), not saved.")
+    
 async def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_value, trade_log_callback=None):
     from utils.trade_utils import log_trade_close
     sell_strike, buy_strike = strike_pair
@@ -279,66 +339,17 @@ async def place_bull_spread_with_oco(ib, symbol, strike_pair, expiry, account_va
     parent_order = clean_limit_order(parent_order)
     print("SELL strike:", sell_leg.strike, "BUY strike:", buy_leg.strike)
     print("Mid credit:", mid_credit)
-    # print(vars(parent_order))
     spread_width = abs(sell_strike - buy_strike)
     if mid_credit >= spread_width:
         print(f"[ERROR] Riskless combo detected: credit ({mid_credit}) >= width ({spread_width}) -- aborting order.")
         return None
-    trade = ib.placeOrder(combo, parent_order)
-    await asyncio.sleep(2)
-    print(trade)
-    parent_id = trade.order.orderId
-    take_profit = Order(
-        action='BUY',
-        orderType='LMT',
-        totalQuantity=quantity,
-        lmtPrice=0.05,
-        parentId=parent_id,
-        ocaGroup=f"{symbol}_OCO",
-        ocaType=1,
-        tif='GTC',
-        transmit=True
-    )
-    nuke_vol_fields(take_profit)
-    # print(vars(take_profit))
-    tp_trade = ib.placeOrder(combo, take_profit)
-    tp_order_id = tp_trade.order.orderId
-    print(f"📤 Placed spread SELL {sell_strike}P / BUY {buy_strike}P @ {mid_credit}")
-    print("🎯 Take-profit set at 0.05")
-    log_entry = {
-        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
-        "type": "bull",
-        "symbol": symbol,
-        "sell_strike": sell_strike,
-        "buy_strike": buy_strike,
-        "expiry": expiry,
-        "open_price": mid_credit,
-        "quantity": quantity,
-        "close_reason": "Pending TP/OCO",
-        "status": "Open",
-        "order_id": parent_id,
-        "tp_order_id": tp_order_id,
-        "theta_diff": theta_diff
-    }
-    if trade_log_callback:
-        trade_log_callback(log_entry)
-    save_open_trade(log_entry)
-    # loop = asyncio.get_event_loop()
-    # loop.create_task(
-    #     monitor_stop_trigger(
-    #         ib, combo, sell_leg, buy_leg, symbol, sell_strike, buy_strike, expiry, quantity,
-    #         tp_trade, mid_credit, "bull", theta_diff, parent_id, trade_log_callback
-    #     )
-    # )
+
     asyncio.create_task(
-        monitor_stop_trigger(
-            ib, combo, sell_leg, buy_leg, symbol, sell_strike, buy_strike, expiry, quantity,
-            tp_trade, mid_credit, "bull", theta_diff, parent_id, trade_log_callback)
-        )
+        place_and_save_when_filled(ib, combo, parent_order, quantity, symbol, sell_strike, buy_strike, mid_credit, expiry, sell_leg, buy_leg, theta_diff, "Bull", trade_log_callback)
+    )
     return {
         "spread": f"{symbol}_{sell_strike}_{buy_strike}_{expiry}",
-        "order_id": parent_id,
+        "order_id": parent_order.orderId,
         "credit": mid_credit,
         "quantity": quantity
     }
@@ -402,63 +413,13 @@ async def place_bear_spread_with_oco(ib, symbol, strike_pair, expiry, account_va
     if mid_credit >= spread_width:
         print(f"[ERROR] Riskless combo detected: credit ({mid_credit}) >= width ({spread_width}) -- aborting order.")
         return None
-    if(not should_trade_now()):
-        return None
-    trade = ib.placeOrder(combo, parent_order)
-    await asyncio.sleep(2)
-    print(trade)
-    parent_id = trade.order.orderId
-    take_profit = Order(
-        action='BUY',
-        orderType='LMT',
-        totalQuantity=quantity,
-        lmtPrice=0.05,
-        parentId=parent_id,
-        ocaGroup=f"{symbol}_OCO",
-        ocaType=1,
-        tif='GTC',
-        transmit=True
-    )
-    nuke_vol_fields(take_profit)
-    # print(vars(take_profit))
-    tp_trade = ib.placeOrder(combo, take_profit)
-    tp_order_id = tp_trade.order.orderId
-    print(f"📤 Placed spread SELL {sell_strike}C / BUY {buy_strike}C @ {mid_credit}")
-    print("🎯 Take-profit set at 0.05")
-    log_entry = {
-        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "spread": f"{symbol} {sell_strike}/{buy_strike} {expiry}",
-        "type": "bear",
-        "symbol": symbol,
-        "sell_strike": sell_strike,
-        "buy_strike": buy_strike,
-        "expiry": expiry,
-        "open_price": mid_credit,
-        "quantity": quantity,
-        "close_reason": "Pending TP/OCO",
-        "status": "Open",
-        "order_id": parent_id,
-        "tp_order_id": tp_order_id,
-        "theta_diff": theta_diff
-    }
-    if trade_log_callback:
-        trade_log_callback(log_entry)
-    save_open_trade(log_entry)
-    # loop = asyncio.get_event_loop()
-    # loop.create_task(
-    #     monitor_stop_trigger(
-    #         ib, combo, sell_leg, buy_leg, symbol, sell_strike, buy_strike, expiry, quantity,
-    #         tp_trade, mid_credit, "bear", theta_diff, parent_id, trade_log_callback
-    #     )
-    # )
+
     asyncio.create_task(
-        monitor_stop_trigger(
-            ib, combo, sell_leg, buy_leg, symbol, sell_strike, buy_strike, expiry, quantity,
-            tp_trade, mid_credit, "bear", theta_diff, parent_id, trade_log_callback)
+        place_and_save_when_filled(ib, combo, parent_order, quantity, symbol, sell_strike, buy_strike, mid_credit, expiry, sell_leg, buy_leg, theta_diff, "Bear", trade_log_callback)
     )
     return {
         "spread": f"{symbol}_{sell_strike}_{buy_strike}_{expiry}",
-        "order_id": parent_id,
+        "order_id": parent_order.orderId,
         "credit": mid_credit,
         "quantity": quantity
     }
