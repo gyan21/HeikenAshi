@@ -17,7 +17,8 @@ def calculate_heikin_ashi(candles):
 async def get_regular_and_heikin_ashi_close(ib: IB, symbol: str):
     contract = Stock(symbol, 'SMART', 'USD')
     await ib.qualifyContractsAsync(contract)
-    bars = await ib.reqHistoricalDataAsync(
+    try:
+        bars = await ib.reqHistoricalDataAsync(
         contract,
         # endDateTime=datetime.now().strftime("%Y%m%d %H:%M:%S"),
         endDateTime='',
@@ -27,6 +28,12 @@ async def get_regular_and_heikin_ashi_close(ib: IB, symbol: str):
         useRTH=True,
         formatDate=1
     )
+    except ConnectionError as e:
+        print(f"[monitor_stop_trigger] ConnectionError while requesting historical data: {e}")
+        # Optionally: break or return to stop this monitor, or sleep and retry
+    except Exception as e:
+        print(f"[monitor_stop_trigger] Unexpected error while requesting historical data: {e}")
+
     if not bars or len(bars) < 2:
         raise Exception("Historical bars could not be fetched.")
     ha = calculate_heikin_ashi(bars)

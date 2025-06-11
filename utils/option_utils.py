@@ -85,15 +85,23 @@ async def monitor_stop_trigger(
             remove_open_trade(parent_id)
 
         # 1-min bar exit (only after 10am)
-        bars = await ib.reqHistoricalDataAsync(
-            Stock(symbol, 'SMART', 'USD'),
-            endDateTime='',
-            durationStr='300 S',  # 5 minutes
-            barSizeSetting='1 min',
-            whatToShow='TRADES',
-            useRTH=True,
-            formatDate=1
-        )
+        try:
+            bars = await ib.reqHistoricalDataAsync(
+                Stock(symbol, 'SMART', 'USD'),
+                endDateTime='',
+                durationStr='300 S',  # 5 minutes
+                barSizeSetting='1 min',
+                whatToShow='TRADES',
+                useRTH=True,
+                formatDate=1
+            )
+        except ConnectionError as e:
+            print(f"[monitor_stop_trigger] ConnectionError while requesting historical data: {e}")
+            # Optionally: break or return to stop this monitor, or sleep and retry
+            break
+        except Exception as e:
+            print(f"[monitor_stop_trigger] Unexpected error while requesting historical data: {e}")
+            break
         now = datetime.now()
         if now.hour >= 10:
             if sell_leg.right == 'C':
