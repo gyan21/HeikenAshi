@@ -29,10 +29,10 @@ async def get_regular_and_heikin_ashi_close(ib: IB, symbol: str):
         formatDate=1
     )
     except ConnectionError as e:
-        print(f"[monitor_stop_trigger] ConnectionError while requesting historical data: {e}")
+        print(f"[get_regular_and_heikin_ashi_close] ConnectionError while requesting historical data: {e}")
         # Optionally: break or return to stop this monitor, or sleep and retry
     except Exception as e:
-        print(f"[monitor_stop_trigger] Unexpected error while requesting historical data: {e}")
+        print(f"[get_regular_and_heikin_ashi_close] Unexpected error while requesting historical data: {e}")
 
     if not bars or len(bars) < 2:
         raise Exception("Historical bars could not be fetched.")

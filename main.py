@@ -16,6 +16,8 @@ from utils.option_utils import resume_monitoring_open_trades
 
 ACCOUNT_VALUE = 100000
 
+already_tried = set()
+
 async def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_callback=None):
     """
     Checks the delta of the option at 47, 52, and 57 minutes of the hour,
@@ -35,7 +37,6 @@ async def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_cal
     print(f"Regular close: {regular_close}, Heikin Ashi close: {ha_close}")
 
     check_minutes = [47, 52, 57]
-    already_tried = set()
 
     now = datetime.now()
     minute = now.minute
@@ -155,7 +156,17 @@ async def run_strategy_periodically(ib_client, symbol, expiry, interval=60):
         except Exception as e:
             print(f"Error in strategy execution: {e}")
         elapsed = time.time() - loop_start
-        await asyncio.sleep(max(0, 60 - elapsed))
+        await asyncio.sleep(max(0, interval - elapsed))
+
+async def resume_monitoring_open_trades_periodically(ib, interval=60):
+    while True:
+        loop_start = time.time()
+        try:
+            await resume_monitoring_open_trades(ib)
+        except Exception as e:
+            print(f"Error in strategy execution: {e}")
+        elapsed = time.time() - loop_start
+        await asyncio.sleep(max(0, interval - elapsed))
         
 async def main():
     ib_client = IBKRClient()
@@ -172,7 +183,7 @@ async def main():
 
     # Start monitoring and strategy tasks
     monitoring_task = asyncio.create_task(
-        resume_monitoring_open_trades(ib_client.ib, save_trade_to_log)
+        resume_monitoring_open_trades_periodically(ib_client.ib)
     )
     strategy_task = asyncio.create_task(
         run_strategy_periodically(ib_client, symbol, expiry)
