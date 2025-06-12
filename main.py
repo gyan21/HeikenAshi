@@ -21,7 +21,7 @@ async def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_cal
     Checks the delta of the option at 47, 52, and 57 minutes of the hour,
     and sells the spread if the sell side option has delta close to 0.20.
     """
-    print(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + f" run_combined_strategy for {symbol} with expiry {expiry}...")
+    print(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + f" run_combined_strategy_start for {symbol} with expiry {expiry}...")
 
     # Only run during the allowed window
     if not should_trade_now():
@@ -73,6 +73,8 @@ async def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_cal
                 print(f"✅ Sold CALL spread at strike {sell_strike} (delta {delta:.2f})")
     else:
         print("No clear bull or bear case.")
+
+    print(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + f" run_combined_strategy_END for {symbol} with expiry {expiry}...")
 
     # Exit loop if all minutes have been checked or time window is over
     if len(already_tried) == len(check_minutes) or not should_trade_now():
@@ -144,13 +146,16 @@ def get_win_rate_and_position_scale(trade_log_file=TRADE_LOG_FILE):
 async def run_strategy_periodically(ib_client, symbol, expiry, interval=60):
     """Run strategy every X seconds"""
     while True:
+        loop_start = time.time()
         try:
             if not is_dry_run() and should_trade_now():
+                print(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " Strategy started")
                 await run_combined_strategy(ib_client, symbol, expiry, ACCOUNT_VALUE, save_trade_to_log)
                 print(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " Strategy executed")
         except Exception as e:
             print(f"Error in strategy execution: {e}")
-        await asyncio.sleep(interval)
+        elapsed = time.time() - loop_start
+        await asyncio.sleep(max(0, 60 - elapsed))
         
 async def main():
     ib_client = IBKRClient()
