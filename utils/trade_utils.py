@@ -3,7 +3,6 @@ import json
 import os
 
 from utils.logger import save_trade_to_log
-from utils.option_utils import place_bear_spread_with_oco, place_bull_spread_with_oco
 
 def log_trade_close(trade, open_price, close_price, quantity, trade_type, status, reason):
     profit = (close_price - open_price) * quantity if trade_type == "bull" else (open_price - close_price) * quantity

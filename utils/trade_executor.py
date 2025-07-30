@@ -163,6 +163,7 @@ async def execute_daily_trade(ib, symbol, expiry, daily_close_price, daily_close
     
     try:
         # Place the main order
+        main_order = True
         main_trade = ib.placeOrder(combo, main_order)
         await asyncio.sleep(2)  # Wait for order to be processed
         
@@ -208,3 +209,4 @@ def should_execute_daily_trade():
     end_time = dtime(16, 0)     # 4:00 PM
     
     return start_time <= current_time <= end_time
+    #return True

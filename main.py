@@ -79,38 +79,47 @@ async def main_strategy_loop(ib_client, symbol, expiry, interval=60):
     """Main strategy loop that runs all components"""
     print(f"🚀 Starting Heikin-Ashi Credit Spread Trading Algorithm")
     print(f"Symbol: {symbol}, Expiry: {expiry}")
-    
+
     while True:
         loop_start = time.time()
-        
+
         try:
             current_time = datetime.now()
             print(f"\n⏰ Strategy check at {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
-            
+
+            # Log IBKR connection status
+            if not ib_client.ib.isConnected():
+                print("⚠️ IBKR client is not connected. Attempting reconnection...")
+                if not await ib_client.connect():
+                    print("❌ Failed to reconnect to IBKR. Retrying in next loop.")
+                    await asyncio.sleep(interval)
+                    continue
+                print("✅ Reconnected to IBKR successfully.")
+
             # Run different components based on time
             tasks = []
-            
+
             # 1. Main Heikin-Ashi strategy (3:55-4:00 PM ET)
             if should_execute_daily_trade():
                 tasks.append(run_heikin_ashi_strategy(ib_client.ib, symbol, expiry))
-            
+
             # 2. Additional opportunities scanner (9:30 AM - 3:00 PM ET)
             if should_scan_additional_opportunities():
                 tasks.append(run_additional_opportunities_scanner(ib_client.ib, symbol, expiry))
-            
+
             # 3. Trade monitoring (during market hours)
             if should_monitor_trades():
                 tasks.append(run_trade_monitoring(ib_client.ib))
-            
+
             # Run applicable tasks
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
             else:
                 print("Outside trading hours - waiting...")
-            
+
         except Exception as e:
             print(f"Error in main strategy loop: {e}")
-        
+
         # Wait for next iteration
         elapsed = time.time() - loop_start
         sleep_time = max(0, interval - elapsed)
@@ -132,7 +141,8 @@ async def main():
     
     # Configuration
     symbol = 'SPY'
-    expiry = await get_next_option_expiry(ib_client.ib, symbol)
+    expiry = get_next_option_expiry(for_additional_trades=False)
+    expiry = expiry.strftime('%Y%m%d')
     print(f"Trading symbol: {symbol}")
     print(f"Next option expiry: {expiry}")
     
@@ -155,6 +165,8 @@ async def main():
 
 if __name__ == "__main__":
     try:
+        import nest_asyncio
+        nest_asyncio.apply()  # Allow nested event loops
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\n👋 Program terminated by user")

@@ -1,6 +1,6 @@
 from ib_insync import Option
 import asyncio
-from config.settings import DELTA_SEARCH_RANGE, SPREAD_WIDTH
+from config.settings import DELTA_SEARCH_RANGE
 
 async def find_option_by_delta_range(ib, symbol, expiry, option_type, target_deltas=None):
     """
@@ -53,16 +53,27 @@ async def find_option_by_delta_range(ib, symbol, expiry, option_type, target_del
             best_delta = None
             min_delta_diff = float('inf')
             
-            # Check several strikes around the current price
-            for strike in chain.strikes:
+            # Get current price
+            current_price = ib.reqMktData(stock, '', False, False).last
+            await asyncio.sleep(1)  # Wait for market data
+
+            # Filter strikes based on option type
+            relevant_strikes = []
+            if option_type == 'C':
+                relevant_strikes = [strike for strike in chain.strikes if strike >= current_price][:10]
+            elif option_type == 'P':
+                relevant_strikes = [strike for strike in chain.strikes if strike <= current_price][-10:]
+
+            # Check relevant strikes
+            for strike in relevant_strikes:
                 try:
                     option = Option(symbol, expiry, strike, option_type, 'SMART')
                     await ib.qualifyContractsAsync(option)
-                    
+
                     # Get market data to calculate delta
                     data = ib.reqMktData(option, '', False, False)
                     await asyncio.sleep(1)  # Wait for data
-                    
+
                     model_greeks = getattr(data, 'modelGreeks', None)
                     if model_greeks:
                         delta = getattr(model_greeks, 'delta', None)
@@ -70,14 +81,22 @@ async def find_option_by_delta_range(ib, symbol, expiry, option_type, target_del
                             # For puts, delta is negative, so we take absolute value
                             abs_delta = abs(delta)
                             delta_diff = abs(abs_delta - target_delta)
-                            
+
                             if delta_diff < min_delta_diff:
                                 min_delta_diff = delta_diff
                                 best_option = option
                                 best_delta = abs_delta
-                    
+
+                                # Stop searching once desired delta is found
+                                if delta_diff == 0:
+                                    print(f"Exact match found for {option_type} option: strike {strike}, delta {best_delta:.3f}")
+                                    return {
+                                        'option': best_option,
+                                        'delta': best_delta
+                                    }
+
                     ib.cancelMktData(option)
-                    
+
                 except Exception as e:
                     print(f"Error processing strike {strike}: {e}")
                     continue
