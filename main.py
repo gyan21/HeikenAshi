@@ -5,202 +5,158 @@ import os
 from datetime import datetime, time as dtime, timedelta
 from utils.ibkr_client import IBKRClient
 from utils.heikin_ashi import get_regular_and_heikin_ashi_close
-from utils.common_utils import is_dry_run, has_reached_trade_limit
-from utils.trade_utils import load_open_trades
-from utils.option_utils import find_options_by_delta, should_trade_now
-from utils.option_utils import place_bull_spread_with_oco, place_bear_spread_with_oco, get_option_iv
-from utils.logger import TRADE_LOG_FILE, save_trade_to_log
+from utils.trade_executor import execute_daily_trade, should_execute_daily_trade
+from utils.trade_monitor import monitor_all_open_trades, should_monitor_trades
+from utils.additional_trades import scan_for_additional_opportunities, should_scan_additional_opportunities
 from utils.option_utils import get_next_option_expiry
-from utils.trade_utils import is_market_hours
-from utils.option_utils import resume_monitoring_open_trades
+from utils.logger import save_trade_to_log
+from config.settings import ACCOUNT_VALUE
 
-ACCOUNT_VALUE = 100000
-
-already_tried = set()
-
-async def run_combined_strategy(ib, symbol, expiry, account_value, trade_log_callback=None):
+async def run_heikin_ashi_strategy(ib, symbol, expiry):
     """
-    Checks the delta of the option at 47, 52, and 57 minutes of the hour,
-    and sells the spread if the sell side option has delta close to 0.20.
+    Main Heikin-Ashi based credit spread trading strategy
+    Executes at 3:55 PM ET daily
     """
-    print(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + f" run_combined_strategy_start for {symbol} with expiry {expiry}...")
-
-    # Only run during the allowed window
-    if not should_trade_now():
-        print("Not in trading window.")
+    if not should_execute_daily_trade():
         return
-
-    win_rate, position_scale = get_win_rate_and_position_scale()
-    print(f"Win rate (last 2 weeks): {win_rate:.1f}%. Position scale: {position_scale*100:.0f}% of account value.")
-
-    regular_close, ha_close = await get_regular_and_heikin_ashi_close(ib.ib, symbol)
-    print(f"Regular close: {regular_close}, Heikin Ashi close: {ha_close}")
-
-    check_minutes = [47, 52, 57]
-
-    now = datetime.now()
-    minute = now.minute
-    if minute in check_minutes and minute not in already_tried:
-        already_tried.add(minute)
-        print(f"⏰ Checking at {minute} minutes past the hour...")
-
-    if regular_close > ha_close:
-        # Bull case: Sell multiple PUT spreads
-        options = await find_options_by_delta(ib.ib, symbol, expiry, 'P', min_delta=0.20, max_delta=0.30)
-        if not options:
-            print("No suitable PUT options found with delta in [0.20, 0.30).")
-        else:
-            for option, delta in options:
-                sell_strike = option.strike
-                buy_strike = sell_strike - 5
-                await place_bull_spread_with_oco(
-                    ib.ib, symbol, (sell_strike, buy_strike), expiry,
-                    account_value * position_scale, trade_log_callback
-                )
-                print(f"✅ Sold PUT spread at strike {sell_strike} (delta {delta:.2f})")
-    elif regular_close < ha_close:
-        # Bear case: Sell multiple CALL spreads
-        options = await find_options_by_delta(ib.ib, symbol, expiry, 'C', min_delta=0.20, max_delta=0.30)
-        if not options:
-            print("No suitable CALL options found with delta in [0.20, 0.30).")
-        else:
-            for option, delta in options:
-                sell_strike = option.strike
-                buy_strike = sell_strike + 5
-                await place_bear_spread_with_oco(
-                    ib.ib, symbol, (sell_strike, buy_strike), expiry,
-                    account_value * position_scale, trade_log_callback
-                )
-                print(f"✅ Sold CALL spread at strike {sell_strike} (delta {delta:.2f})")
-    else:
-        print("No clear bull or bear case.")
-
-    print(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + f" run_combined_strategy_END for {symbol} with expiry {expiry}...")
-
-    # Exit loop if all minutes have been checked or time window is over
-    if len(already_tried) == len(check_minutes) or not should_trade_now():
-        print("Finished all checks or trading window ended.")
     
-
-def get_win_rate_and_position_scale(trade_log_file=TRADE_LOG_FILE):
-    """
-    Calculates win rate for the last 2 weeks of closed trades.
-    Starts at 2% position size. For every 2-week period with win rate > 70%,
-    increases position size by 1% (cumulative), up to a maximum of 5%.
-    """
-    now = datetime.now()
-    position_scale = 0.02 # Start at 2%
-    max_scale = 0.05      # Max 5%
-
-    if not os.path.exists(trade_log_file):
-        return 0.0, position_scale
-
-    with open(trade_log_file, 'r', encoding="utf-8") as f:
-        trades = json.load(f)
-
-    # Only consider closed trades
-    trades = [t for t in trades if t.get("status", "").lower().startswith("exited")]
-    if not trades:
-        return 0.0, position_scale
-
-    # Sort trades by date ascending
-    trades = sorted(trades, key=lambda t: t.get("date", ""))
-
-    # Find the earliest and latest trade date
+    print(f"🔄 Running Heikin-Ashi strategy for {symbol}")
+    
     try:
-        earliest_date = datetime.strptime(trades[0]["date"], "%Y-%m-%d %H:%M:%S")
-        latest_date = datetime.strptime(trades[-1]["date"], "%Y-%m-%d %H:%M:%S")
-    except Exception:
-        return 0.0, position_scale
-
-    # Step through 2-week windows, scaling up if win rate > 70%
-    window_start = earliest_date
-    while window_start < latest_date:
-        window_end = window_start + timedelta(days=14)
-        window_trades = [
-            t for t in trades
-            if window_start <= datetime.strptime(t["date"], "%Y-%m-%d %H:%M:%S") < window_end
-        ]
-        if window_trades:
-            wins = sum(1 for t in window_trades if t.get("profit", 0) > 0)
-            win_rate = (wins / len(window_trades)) * 100
-            if win_rate > 70 and position_scale < max_scale:
-                position_scale += 0.01
-        window_start = window_end
-
-    # For the current 2-week window, return its win rate
-    two_weeks_ago = now - timedelta(days=14)
-    current_window_trades = [
-        t for t in trades
-        if two_weeks_ago <= datetime.strptime(t["date"], "%Y-%m-%d %H:%M:%S") <= now
-    ]
-    if current_window_trades:
-        wins = sum(1 for t in current_window_trades if t.get("profit", 0) > 0)
-        win_rate = (wins / len(current_window_trades)) * 100
-    else:
-        win_rate = 0.0
-
-    # Cap position_scale at 5%
-    position_scale = min(position_scale, max_scale)
-    return win_rate, position_scale
-
-async def run_strategy_periodically(ib_client, symbol, expiry, interval=60):
-    """Run strategy every X seconds"""
-    while True:
-        loop_start = time.time()
-        try:
-            if not is_dry_run() and should_trade_now():
-                print(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " Strategy started")
-                await run_combined_strategy(ib_client, symbol, expiry, ACCOUNT_VALUE, save_trade_to_log)
-                print(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " Strategy executed")
-        except Exception as e:
-            print(f"Error in strategy execution: {e}")
-        elapsed = time.time() - loop_start
-        await asyncio.sleep(max(0, interval - elapsed))
-
-async def resume_monitoring_open_trades_periodically(ib, interval=60):
-    while True:
-        loop_start = time.time()
-        try:
-            await resume_monitoring_open_trades(ib)
-        except Exception as e:
-            print(f"Error in strategy execution: {e}")
-        elapsed = time.time() - loop_start
-        await asyncio.sleep(max(0, interval - elapsed))
+        # Get regular close and Heikin-Ashi close
+        daily_close_price, daily_close_ha = await get_regular_and_heikin_ashi_close(ib, symbol)
         
+        print(f"Daily close price: {daily_close_price}")
+        print(f"Daily Heikin-Ashi close: {daily_close_ha}")
+        
+        # Execute the trade based on new requirements
+        trade_result = await execute_daily_trade(
+            ib, symbol, expiry, daily_close_price, daily_close_ha
+        )
+        
+        if trade_result:
+            print("✅ Daily trade executed successfully")
+            # Log the price comparison for trade records
+            price_diff = daily_close_price - daily_close_ha
+            print(f"Price difference (dailyClosePrice - dailyCloseHA): {price_diff:.2f}")
+        else:
+            print("❌ Daily trade not executed")
+            
+    except Exception as e:
+        print(f"Error in Heikin-Ashi strategy: {e}")
+
+async def run_additional_opportunities_scanner(ib, symbol, expiry):
+    """
+    Scan for additional trading opportunities during market hours
+    """
+    if not should_scan_additional_opportunities():
+        return
+    
+    print(f"🔍 Scanning for additional opportunities for {symbol}")
+    
+    try:
+        result = await scan_for_additional_opportunities(ib, symbol, expiry)
+        if result:
+            print("✅ Additional trade opportunity executed")
+        else:
+            print("ℹ️ No additional opportunities found")
+    except Exception as e:
+        print(f"Error scanning additional opportunities: {e}")
+
+async def run_trade_monitoring(ib):
+    """
+    Monitor open trades for exit conditions
+    """
+    if not should_monitor_trades():
+        return
+    
+    try:
+        await monitor_all_open_trades(ib)
+    except Exception as e:
+        print(f"Error in trade monitoring: {e}")
+
+async def main_strategy_loop(ib_client, symbol, expiry, interval=60):
+    """Main strategy loop that runs all components"""
+    print(f"🚀 Starting Heikin-Ashi Credit Spread Trading Algorithm")
+    print(f"Symbol: {symbol}, Expiry: {expiry}")
+    
+    while True:
+        loop_start = time.time()
+        
+        try:
+            current_time = datetime.now()
+            print(f"\n⏰ Strategy check at {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            # Run different components based on time
+            tasks = []
+            
+            # 1. Main Heikin-Ashi strategy (3:55-4:00 PM ET)
+            if should_execute_daily_trade():
+                tasks.append(run_heikin_ashi_strategy(ib_client.ib, symbol, expiry))
+            
+            # 2. Additional opportunities scanner (9:30 AM - 3:00 PM ET)
+            if should_scan_additional_opportunities():
+                tasks.append(run_additional_opportunities_scanner(ib_client.ib, symbol, expiry))
+            
+            # 3. Trade monitoring (during market hours)
+            if should_monitor_trades():
+                tasks.append(run_trade_monitoring(ib_client.ib))
+            
+            # Run applicable tasks
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            else:
+                print("Outside trading hours - waiting...")
+            
+        except Exception as e:
+            print(f"Error in main strategy loop: {e}")
+        
+        # Wait for next iteration
+        elapsed = time.time() - loop_start
+        sleep_time = max(0, interval - elapsed)
+        await asyncio.sleep(sleep_time)
+
 async def main():
+    """Main entry point"""
+    print("=" * 60)
+    print("HEIKIN-ASHI CREDIT SPREAD TRADING ALGORITHM")
+    print("=" * 60)
+    
+    # Connect to IBKR
     ib_client = IBKRClient()
     if not await ib_client.connect():
         print("❌ Could not connect to IBKR.")
         return
 
+    print("✅ Connected to IBKR successfully")
+    
+    # Configuration
     symbol = 'SPY'
     expiry = await get_next_option_expiry(ib_client.ib, symbol)
+    print(f"Trading symbol: {symbol}")
     print(f"Next option expiry: {expiry}")
+    
     if not expiry:
         print("❌ Could not find a valid option expiry.")
+        ib_client.disconnect()
         return
 
-    # Start monitoring and strategy tasks
-    monitoring_task = asyncio.create_task(
-        resume_monitoring_open_trades_periodically(ib_client.ib)
-    )
-    strategy_task = asyncio.create_task(
-        run_strategy_periodically(ib_client, symbol, expiry)
-    )
-
     try:
-        await asyncio.gather(monitoring_task, strategy_task)
-    except asyncio.CancelledError:
-        print("Shutting down gracefully...")
+        # Run the main strategy loop
+        await main_strategy_loop(ib_client, symbol, expiry)
+        
+    except KeyboardInterrupt:
+        print("\n🛑 Strategy stopped by user")
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        print(f"❌ Unexpected error in main: {e}")
     finally:
         ib_client.disconnect()
-        print("Disconnected from IBKR")
+        print("🔌 Disconnected from IBKR")
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("Program stopped by user")
+        print("\n👋 Program terminated by user")
+    except Exception as e:
+        print(f"❌ Fatal error: {e}")
