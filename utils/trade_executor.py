@@ -3,7 +3,7 @@ from datetime import datetime, time as dtime
 from ib_insync import Option, Contract, ComboLeg, Order
 from config.settings import (
     SPREAD_WIDTH, MIN_PREMIUM_TIER_1, MIN_PREMIUM_TIER_2, 
-    TRADE_EXECUTION_START, TRADE_EXECUTION_END
+    TRADE_EXECUTION_START, TRADE_EXECUTION_END, DEBUG   
 )
 from utils.delta_option_finder import find_both_options_for_spread, calculate_spread_premium
 from utils.quantity_manager import get_current_trade_quantity
@@ -207,6 +207,7 @@ def should_execute_daily_trade():
     # Trade execution window: 3:55 PM to 4:00 PM ET
     start_time = dtime(15, 55)  # 3:55 PM
     end_time = dtime(16, 0)     # 4:00 PM
-    
-    return start_time <= current_time <= end_time
-    #return True
+    if DEBUG:
+        return True
+    else:
+        return start_time <= current_time <= end_time

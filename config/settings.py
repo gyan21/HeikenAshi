@@ -29,3 +29,5 @@ BEAR_EXIT_PATTERN = ["red", "red", "green"]    # RRG for 15-min candles
 # Additional trade patterns (next day)
 BULL_ADDITIONAL_PATTERN = ["red", "red", "green"]  # RRG for bull trades
 BEAR_ADDITIONAL_PATTERN = ["green", "green", "red"] # GGR for bear trades
+
+DEBUG = True
