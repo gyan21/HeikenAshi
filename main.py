@@ -12,11 +12,61 @@ from utils.option_utils import get_next_option_expiry
 from utils.logger import save_trade_to_log
 from config.settings import ACCOUNT_VALUE
 
-async def run_heikin_ashi_strategy(ib, symbol, expiry):
+async def get_dynamic_expiry(ib, symbol, dte_target):
+    """
+    Dynamically fetch the expiry date based on Days to Expiry (DTE).
+    
+    Args:
+        ib: IBKR connection
+        symbol: Stock symbol (e.g., 'SPY')
+        dte_target: Target Days to Expiry (e.g., 1 for next day, 0 for same day)
+    
+    Returns:
+        Expiry date string in 'YYYYMMDD' format or None if not found.
+    """
+    try:
+        from ib_insync import Stock
+        stock = Stock(symbol, 'SMART', 'USD')
+        await ib.qualifyContractsAsync(stock)
+        
+        chains = await ib.reqSecDefOptParamsAsync(
+            stock.symbol, '', stock.secType, stock.conId
+        )
+        
+        if not chains:
+            print(f"No option chains found for {symbol}")
+            return None
+        
+        # Find the expiry closest to the target DTE
+        today = datetime.now().date()
+        for chain in chains:
+            for expiry in chain.expirations:
+                expiry_date = datetime.strptime(expiry, '%Y%m%d').date()
+                dte = (expiry_date - today).days
+                if dte == dte_target:
+                    print(f"Found expiry {expiry} for DTE {dte_target}")
+                    return expiry
+        
+        print(f"No expiry found for DTE {dte_target}")
+        return None
+    
+    except Exception as e:
+        print(f"Error fetching dynamic expiry: {e}")
+        return None
+    
+async def run_heikin_ashi_strategy(ib, symbol):
     """
     Main Heikin-Ashi based credit spread trading strategy
     Executes at 3:55 PM ET daily
+    Uses next-day expiry.
     """
+    expiry = await get_dynamic_expiry(ib, symbol, dte_target=1)  # Next-day expiry
+    if not expiry:
+        print("❌ Could not find a valid next-day expiry.")
+        return
+    
+    print(f"Using next-day expiry: {expiry}")
+    
     if not should_execute_daily_trade():
         return
     
@@ -45,10 +95,18 @@ async def run_heikin_ashi_strategy(ib, symbol, expiry):
     except Exception as e:
         print(f"Error in Heikin-Ashi strategy: {e}")
 
-async def run_additional_opportunities_scanner(ib, symbol, expiry):
+async def run_additional_opportunities_scanner(ib, symbol):
     """
     Scan for additional trading opportunities during market hours
+    Uses same-day expiry.
     """
+    expiry = await get_dynamic_expiry(ib, symbol, dte_target=0)  # Same-day expiry
+    if not expiry:
+        print("❌ Could not find a valid same-day expiry.")
+        return
+    
+    print(f"Using same-day expiry: {expiry}")
+    
     if not should_scan_additional_opportunities():
         return
     
@@ -75,14 +133,12 @@ async def run_trade_monitoring(ib):
     except Exception as e:
         print(f"Error in trade monitoring: {e}")
 
-async def main_strategy_loop(ib_client, symbol, expiry, interval=60):
+async def main_strategy_loop(ib_client, symbol, interval=60):
     """Main strategy loop that runs all components"""
     print(f"🚀 Starting Heikin-Ashi Credit Spread Trading Algorithm")
-    print(f"Symbol: {symbol}, Expiry: {expiry}")
 
     while True:
         loop_start = time.time()
-
         try:
             current_time = datetime.now()
             print(f"\n⏰ Strategy check at {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -101,11 +157,11 @@ async def main_strategy_loop(ib_client, symbol, expiry, interval=60):
 
             # 1. Main Heikin-Ashi strategy (3:55-4:00 PM ET)
             if should_execute_daily_trade():
-                tasks.append(run_heikin_ashi_strategy(ib_client.ib, symbol, expiry))
+                tasks.append(run_heikin_ashi_strategy(ib_client.ib, symbol))
 
             # 2. Additional opportunities scanner (9:30 AM - 3:00 PM ET)
             if should_scan_additional_opportunities():
-                tasks.append(run_additional_opportunities_scanner(ib_client.ib, symbol, expiry))
+                tasks.append(run_additional_opportunities_scanner(ib_client.ib, symbol))
 
             # 3. Trade monitoring (during market hours)
             if should_monitor_trades():
@@ -141,19 +197,11 @@ async def main():
     
     # Configuration
     symbol = 'SPY'
-    expiry = get_next_option_expiry(for_additional_trades=False)
-    expiry = expiry.strftime('%Y%m%d')
     print(f"Trading symbol: {symbol}")
-    print(f"Next option expiry: {expiry}")
-    
-    if not expiry:
-        print("❌ Could not find a valid option expiry.")
-        ib_client.disconnect()
-        return
 
     try:
         # Run the main strategy loop
-        await main_strategy_loop(ib_client, symbol, expiry)
+        await main_strategy_loop(ib_client, symbol)
         
     except KeyboardInterrupt:
         print("\n🛑 Strategy stopped by user")
