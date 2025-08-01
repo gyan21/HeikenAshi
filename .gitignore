@@ -26,3 +26,7 @@ trade_log.xlsx
 *.pyc
 *.pyc
 *.pyc
+*.vsidx
+config/__pycache__/settings.cpython-313.pyc
+utils/__pycache__/delta_option_finder.cpython-313.pyc
+utils/__pycache__/trade_executor.cpython-313.pyc
