@@ -40,11 +40,13 @@ async def get_dynamic_expiry(ib, symbol, dte_target):
         # Find the expiry closest to the target DTE
         today = datetime.now().date()
         for chain in chains:
-            for expiry in chain.expirations:
+            # Sort expirations in ascending order
+            sorted_expirations = sorted(chain.expirations)
+            for expiry in sorted_expirations:
                 expiry_date = datetime.strptime(expiry, '%Y%m%d').date()
                 dte = (expiry_date - today).days
-                if dte == dte_target:
-                    print(f"Found expiry {expiry} for DTE {dte_target}")
+                if dte >= dte_target:
+                    print(f"Found expiry {expiry} for DTE {dte_target} and it {expiry_date}")
                     return expiry
         
         print(f"No expiry found for DTE {dte_target}")
