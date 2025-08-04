@@ -100,15 +100,15 @@ async def find_option_by_delta_range(ib, symbol, expiry, option_type, stockPrice
                     
                 finally:
                 # Always cleanup market data
-                if data and short_option:
-                    try:
-                        # Check if market data request is still active before cancelling
-                        if hasattr(data, 'contract') and data.contract == short_option:
-                            ib.cancelMktData(short_option)
-                            await asyncio.sleep(0.5)
-                    except Exception as cleanup_error:
-                        # Ignore cleanup errors - they're not critical
-                        pass
+                    if data and short_option:
+                        try:
+                            # Check if market data request is still active before cancelling
+                            if hasattr(data, 'contract') and data.contract == short_option:
+                                ib.cancelMktData(short_option)
+                                await asyncio.sleep(0.5)
+                        except Exception as cleanup_error:
+                            # Ignore cleanup errors - they're not critical
+                            pass
                             
         print(f"No suitable {option_type} options found with any target delta")
         return None
