@@ -9,64 +9,62 @@ from config.settings import MIN_PREMIUM_NEXT_DAY, SPREAD_WIDTH
 
 async def check_additional_trade_opportunity(ib, symbol, expiry, previous_trade_direction):
     """
-    Check for additional trade opportunities on the next day
-    
+    Check for additional trade opportunities on the next day.
+
     Args:
         ib: IBKR connection
         symbol: Stock symbol
         expiry: Option expiry
         previous_trade_direction: 'bull' or 'bear' from previous day's Heikin-Ashi logic
-    
+
     Returns:
         dict with trade info if opportunity found, None otherwise
     """
     print(f"Checking additional trade opportunity for {previous_trade_direction} direction")
-    
+
     # Check if the required pattern is present
     pattern_confirmed = await check_additional_entry_pattern(
         ib, symbol, previous_trade_direction, include_previous_day=True
     )
-    
+
     if not pattern_confirmed:
         print(f"Pattern not confirmed for additional {previous_trade_direction} trade")
         return None
-    
+
     print(f"✅ Pattern confirmed for additional {previous_trade_direction} trade")
-    
-    # Find suitable options
+
+    # Find suitable options using find_both_options_for_spread
     options_data = await find_both_options_for_spread(ib, symbol, expiry)
-    
+
     if previous_trade_direction == 'bull':
-        # Bull direction: continue with Put credit spreads
+        # Bull direction: Use Put credit spreads
         if not options_data.get('put'):
             print("No suitable Put option found for additional Bull trade")
             return None
-            
+
         put_data = options_data['put']
-        sell_option = put_data['option']
-        buy_strike = sell_option.strike - SPREAD_WIDTH
-        buy_option = Option(symbol, expiry, buy_strike, 'P', 'SMART')
-        
+        sell_option = put_data['short_option']
+        buy_option = put_data['long_option']
+
     else:  # bear
-        # Bear direction: continue with Call credit spreads
+        # Bear direction: Use Call credit spreads
         if not options_data.get('call'):
             print("No suitable Call option found for additional Bear trade")
             return None
-            
+
         call_data = options_data['call']
-        sell_option = call_data['option']
-        buy_strike = sell_option.strike + SPREAD_WIDTH
-        buy_option = Option(symbol, expiry, buy_strike, 'C', 'SMART')
-    
+        sell_option = call_data['short_option']
+        buy_option = call_data['long_option']
+
     # Calculate premium
     premium = await calculate_spread_premium(ib, sell_option, buy_option)
     print(f"Additional trade premium: ${premium:.2f} per contract")
-    
+
     # Check if premium meets minimum requirement for next-day trades
     if premium < MIN_PREMIUM_NEXT_DAY:
         print(f"Premium ${premium:.2f} below minimum ${MIN_PREMIUM_NEXT_DAY} for additional trades")
         return None
-    
+
     return {
         'sell_option': sell_option,
         'buy_option': buy_option,

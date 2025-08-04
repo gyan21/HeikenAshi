@@ -22,6 +22,28 @@ async def determine_trade_direction(daily_close_price, daily_close_ha):
     else:
         return 'bear'
 
+def clean_limit_order(order):
+    fields_none = [
+        'auxPrice', 'minQty', 'percentOffset', 'trailStopPrice',
+        'trailingPercent', 'goodAfterTime', 'goodTillDate'
+        #,'volatility'
+    ]
+    fields_list = [
+        'conditions', 'orderComboLegs', 'orderMiscOptions', 'algoParams', 'smartComboRoutingParams'
+    ]
+    for field in fields_none:
+        if hasattr(order, field):
+            setattr(order, field, None)
+    for field in fields_list:
+        if hasattr(order, field):
+            setattr(order, field, [])
+    
+    # Remove volatility attribute entirely
+    if hasattr(order, 'volatility'):
+        delattr(order, 'volatility')
+        
+    return order
+
 async def create_spread_order(ib, sell_option, buy_option, quantity, premium_target, is_bull_spread=True):
     """
     Create a spread order for the given options
@@ -63,9 +85,8 @@ async def create_spread_order(ib, sell_option, buy_option, quantity, premium_tar
             totalQuantity=quantity,
             lmtPrice=limit_price,
             tif='DAY',
-            transmit=False  # Don't transmit yet
-        )
-        
+            transmit=True  # Don't transmit yet
+        )         
         return combo, order
         
     except Exception as e:
@@ -84,10 +105,19 @@ async def create_close_order(combo, quantity):
     )
     return close_order
 
-async def execute_daily_trade(ib, symbol, expiry, daily_close_price, daily_close_ha):
+async def execute_daily_trade(ib, symbol, expiry, daily_close_price, daily_close_ha):#, trade_direction, quantity):
     """
-    Execute the main daily trade at 3:55 PM ET according to new requirements
-    
+    Execute the main daily trade based on Heikin-Ashi logic at 3:55 PM ET.
+
+    Args:
+        ib: IBKR connection
+        symbol: Stock symbol
+        expiry: Option expiry
+        daily_close_price: Actual daily close price
+        daily_close_ha: Heikin-Ashi daily close price
+        trade_direction: 'bull' or 'bear' based on Heikin-Ashi logic
+        quantity: Number of contracts
+
     Returns:
         dict with trade information or None if no trade executed
     """
@@ -101,40 +131,34 @@ async def execute_daily_trade(ib, symbol, expiry, daily_close_price, daily_close
     # Get current trade quantity
     quantity = get_current_trade_quantity()
     print(f"Trade quantity: {quantity} contracts")
-    
-    # Find suitable options
-    options_data = await find_both_options_for_spread(ib, symbol, expiry)
-    
+
+    # Find suitable options using find_both_options_for_spread
+    options_data = await find_both_options_for_spread(ib, symbol, expiry, daily_close_price)
+
     if trade_direction == 'bull':
-        # Bull Credit Spread: Sell Put spread
+        # Bull direction: Use Put credit spreads
         if not options_data.get('put'):
-            print("No suitable Put option found for Bull spread")
+            print("No suitable Put option found for Bull trade")
             return None
-            
+
         put_data = options_data['put']
-        sell_option = put_data['option']
-        
-        # Create buy option (lower strike)
-        buy_strike = sell_option.strike - SPREAD_WIDTH
-        buy_option = Option(symbol, expiry, buy_strike, 'P', 'SMART')
-        
+        sell_option = put_data['short_option']
+        buy_option = put_data['long_option']
+
     else:  # bear
-        # Bear Credit Spread: Sell Call spread  
+        # Bear direction: Use Call credit spreads
         if not options_data.get('call'):
-            print("No suitable Call option found for Bear spread")
+            print("No suitable Call option found for Bear trade")
             return None
-            
+
         call_data = options_data['call']
-        sell_option = call_data['option']
-        
-        # Create buy option (higher strike)
-        buy_strike = sell_option.strike + SPREAD_WIDTH
-        buy_option = Option(symbol, expiry, buy_strike, 'C', 'SMART')
-    
-    # Calculate potential premium
+        sell_option = call_data['short_option']
+        buy_option = call_data['long_option']
+
+    # Calculate premium
     premium = await calculate_spread_premium(ib, sell_option, buy_option)
-    print(f"Calculated premium: ${premium:.2f} per contract")
-    
+    print(f"Daily trade premium: ${premium:.2f} per contract")
+
     # Check if premium meets requirements
     current_time = datetime.now().time()
     cutoff_time = dtime(16, 00)  # 4:00 PM
@@ -147,32 +171,36 @@ async def execute_daily_trade(ib, symbol, expiry, daily_close_price, daily_close
     if premium < min_premium:
         print(f"Premium ${premium:.2f} below minimum ${min_premium}. Skipping trade.")
         return None
-    
-    # Create and place the spread order
+
+    # Create and place the trade
     combo, main_order = await create_spread_order(
-        ib, sell_option, buy_option, quantity, premium, 
+        ib, sell_option, buy_option, quantity, premium,
         is_bull_spread=(trade_direction == 'bull')
     )
-    
+
     if not combo or not main_order:
-        print("Failed to create spread order")
+        print("Failed to create daily spread order")
         return None
-    
+
     # Create the closing order at $0.05
     close_order = await create_close_order(combo, quantity)
-    
+
     try:
         # Place the main order
-        main_order = True
+        main_order = clean_limit_order(main_order)
+        print(vars(main_order))  # Should NOT show 'volatility'
         main_trade = ib.placeOrder(combo, main_order)
         await asyncio.sleep(2)  # Wait for order to be processed
         
         # Place the closing order
-        close_trade = ib.placeOrder(combo, close_order) 
-        
+        close_order = clean_limit_order(close_order)
+        print(vars(close_order))  # Should NOT show 'volatility'
+        close_trade = ib.placeOrder(combo, close_order)
+
         # Log the trade
         trade_info = {
             "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "trade_type": "Main",
             "trade_direction": trade_direction,
             "spread": f"{symbol} {sell_option.strike}/{buy_option.strike} {expiry}",
             "option_type": sell_option.right,
@@ -187,10 +215,10 @@ async def execute_daily_trade(ib, symbol, expiry, daily_close_price, daily_close
             "main_order_id": main_trade.order.orderId,
             "close_order_id": close_trade.order.orderId
         }
-        
+
         save_trade_to_log(trade_info)
-        print(f"✅ {trade_direction.title()} spread trade placed successfully")
-        
+        print(f"✅ Daily {trade_direction} spread trade placed successfully")
+
         return trade_info
         
     except Exception as e:

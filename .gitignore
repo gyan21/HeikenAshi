@@ -30,3 +30,10 @@ trade_log.xlsx
 config/__pycache__/settings.cpython-313.pyc
 utils/__pycache__/delta_option_finder.cpython-313.pyc
 utils/__pycache__/trade_executor.cpython-313.pyc
+.vs/VSWorkspaceState.json
+.vs/HeikenAshi_1/v17/.wsuo
+.vs/HeikenAshi_1/v17/DocumentLayout.json
+config/__pycache__/settings.cpython-313.pyc
+utils/__pycache__/additional_trades.cpython-313.pyc
+utils/__pycache__/delta_option_finder.cpython-313.pyc
+utils/__pycache__/trade_executor.cpython-313.pyc
