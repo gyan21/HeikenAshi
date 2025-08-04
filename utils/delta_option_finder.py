@@ -31,10 +31,16 @@ async def find_option_by_delta_range(ib, symbol, expiry, option_type, stockPrice
             return None
 
         # Get current price robustly
-        data = ib.reqMktData(stock, '', True, False)
-        await asyncio.sleep(2)
-        current_price = data.last
-        ib.cancelMktData(stock)
+        try:
+            data = ib.reqMktData(stock, '', False, False)
+            await asyncio.sleep(3)
+            current_price = data.last
+            ib.cancelMktData(stock)
+            await asyncio.sleep(1)  # Add await here
+        except Exception as e:
+            print(f"Error getting stock price: {e}")
+            current_price = None
+            
         if current_price is None or math.isnan(current_price):
             print("Could not get current stock price, using fallback")
             current_price = stockPrice
@@ -49,40 +55,64 @@ async def find_option_by_delta_range(ib, symbol, expiry, option_type, stockPrice
         for target_delta in target_deltas:
             print(f"Searching for {option_type} options with delta near {target_delta}")
             for strike in relevant_strikes:
+                data = None
+                short_option = None
                 try:
                     short_option = Option(symbol, expiry, strike, option_type, 'SMART')
                     await ib.qualifyContractsAsync(short_option)
+                    
                     data = ib.reqMktData(short_option, '', False, False)
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(2)  # Increased wait time
+                    
                     model_greeks = getattr(data, 'modelGreeks', None)
+                    
                     if model_greeks and model_greeks.delta is not None:
                         abs_delta = abs(model_greeks.delta)
                         delta_diff = abs(abs_delta - target_delta)
-                        # Accept first found within reasonable tolerance (e.g., 0.01)
+                        
+                        # Accept first found within reasonable tolerance
                         if delta_diff < 0.01 or abs_delta == target_delta:
                             # Find long leg
                             long_strike = strike + spread_width if option_type == 'C' else strike - spread_width
+                            
                             # Ensure long_strike is valid
                             while long_strike not in chain.strikes:
                                 if option_type == 'C':
                                     long_strike += 1
                                 else:
                                     long_strike -= 1
+                                    
                             long_option = Option(symbol, expiry, long_strike, option_type, 'SMART')
                             await ib.qualifyContractsAsync(long_option)
+                            
+                            # Cancel market data before returning
                             ib.cancelMktData(short_option)
-                            print(f"Found {option_type} spread: short {strike}, long {long_strike}, delta {abs_delta:.3f}")
+                            await asyncio.sleep(0.5)  # Wait for cleanup
+                            
                             return {
                                 'short_option': short_option,
                                 'long_option': long_option,
                                 'delta': abs_delta
                             }
-                    ib.cancelMktData(short_option)
+                            
                 except Exception as e:
                     print(f"Error processing strike {strike}: {e}")
-                    continue
+                    
+                finally:
+                # Always cleanup market data
+                if data and short_option:
+                    try:
+                        # Check if market data request is still active before cancelling
+                        if hasattr(data, 'contract') and data.contract == short_option:
+                            ib.cancelMktData(short_option)
+                            await asyncio.sleep(0.5)
+                    except Exception as cleanup_error:
+                        # Ignore cleanup errors - they're not critical
+                        pass
+                            
         print(f"No suitable {option_type} options found with any target delta")
         return None
+        
     except Exception as e:
         print(f"Error finding option by delta: {e}")
         return None
