@@ -6,96 +6,273 @@ from utils.logger import save_trade_to_log
 from utils.trade_utils import load_open_trades, save_open_trades
 from config.settings import PATTERN_MONITORING_START
 
+# Global dictionary to track trigger states for each trade
+trade_trigger_states = {}
+
 async def monitor_trade_exit_conditions(ib, trade_info):
     """
-    Monitor exit conditions for a specific trade according to new requirements
+    Monitor exit conditions for a specific trade with separate trigger tracking
     
-    Exit conditions:
-    Bull Credit Spread:
-    1. Stock price falls below previous day's low OR below short strike
-    2. Time is 10:00 AM or later
-    3. 15-minute chart shows Green-Green-Red pattern
-    
-    Bear Credit Spread:  
-    1. Stock price rises above previous day's high OR above short strike
-    2. Time is 10:00 AM or later
-    3. 15-minute chart shows Red-Red-Green pattern
+    Exit Logic:
+    1. Track Trigger-1: Next day open against position OR price beyond prev day high/low anytime
+    2. Track Trigger-2: Price beyond sell strike
+    3. Execute stop loss only when BOTH triggers occurred + pattern confirmed + after 10AM
     """
     symbol = trade_info.get('symbol', 'SPY')
     trade_direction = trade_info.get('trade_direction')
     sell_strike = trade_info.get('sell_strike')
-    quantity = trade_info.get('quantity', 1)
+    main_order_id = trade_info.get('main_order_id')
     
-    print(f"Monitoring {trade_direction} spread exit conditions for {symbol}")
+    print(f"🔍 Starting monitoring for {trade_direction} spread {main_order_id}")
     
-    # Get previous day's data
+    # Initialize trigger state for this trade
+    if main_order_id not in trade_trigger_states:
+        trade_trigger_states[main_order_id] = {
+            'trigger_1_open_against': False,
+            'trigger_2_beyond_strike': False,
+            'trigger_1_time': None,
+            'trigger_2_time': None,
+            'trade_direction': trade_direction,
+            'sell_strike': sell_strike,
+            'symbol': symbol
+        }
+    
+    # Get previous day's data for Trigger-1 comparison
     prev_day_data = await get_previous_day_data(ib, symbol)
     if not prev_day_data:
-        print("Could not get previous day data for exit monitoring")
+        print("❌ Could not get previous day data for exit monitoring")
         return False
     
     prev_high = prev_day_data['high']
     prev_low = prev_day_data['low']
-    print(f"Previous day - High: {prev_high}, Low: {prev_low}")
+    print(f"📊 Previous day - High: {prev_high}, Low: {prev_low}")
+    print(f"🎯 Sell strike: {sell_strike}")
     
+    # Check for any historical trigger that might have already occurred
+    await check_historical_triggers(ib, main_order_id, symbol, trade_direction, prev_high, prev_low)
+    
+    # Main monitoring loop
     while True:
         try:
-            # Check if it's after 10:00 AM
+            # Check if trade still exists and is open
+            if not is_trade_still_open(main_order_id):
+                print(f"✅ Trade {main_order_id} is no longer open, stopping monitoring")
+                if main_order_id in trade_trigger_states:
+                    del trade_trigger_states[main_order_id]
+                return True
+            
+            # Get current time
             current_time = datetime.now().time()
-            if current_time < dtime(10, 0):
-                print("Before 10:00 AM, waiting...")
-                await asyncio.sleep(300)  # Wait 5 minutes
-                continue
             
             # Get current stock price
-            stock = Stock(symbol, 'SMART', 'USD')
-            await ib.qualifyContractsAsync(stock)
-            
-            ticker = ib.reqMktData(stock, '', False, False)
-            await asyncio.sleep(2)
-            current_price = ticker.last if ticker.last else ticker.close
-            ib.cancelMktData(stock)
-            
+            current_price = await get_current_stock_price(ib, symbol)
             if not current_price:
-                print("Could not get current stock price")
                 await asyncio.sleep(60)
                 continue
             
-            print(f"Current {symbol} price: {current_price}")
+            print(f"💰 Current {symbol} price: {current_price}")
             
-            # Check price-based exit conditions
-            should_check_pattern = False
+            # Check both triggers continuously
+            check_trigger_1_price_levels(main_order_id, current_price, trade_direction, prev_high, prev_low)
+            check_trigger_2_beyond_strike(main_order_id, current_price, trade_direction, sell_strike)
             
-            if trade_direction == 'bull':
-                # Bull spread: exit if price falls below prev day low OR below short strike
-                if current_price < prev_low or current_price < sell_strike:
-                    print(f"Bull exit condition met: price {current_price} < prev low {prev_low} or < sell strike {sell_strike}")
-                    should_check_pattern = True
+            # Print current trigger status
+            state = trade_trigger_states[main_order_id]
+            print(f"🚨 Trigger Status - Open/Price Against: {state['trigger_1_open_against']}, Beyond Strike: {state['trigger_2_beyond_strike']}")
             
-            elif trade_direction == 'bear':
-                # Bear spread: exit if price rises above prev day high OR above short strike  
-                if current_price > prev_high or current_price > sell_strike:
-                    print(f"Bear exit condition met: price {current_price} > prev high {prev_high} or > sell strike {sell_strike}")
-                    should_check_pattern = True
-            
-            # If price condition is met, check the pattern
-            if should_check_pattern:
+            # Check if we can execute stop loss
+            if can_execute_stop_loss(main_order_id, current_time):
                 pattern_confirmed = await check_exit_pattern(ib, symbol, trade_direction)
                 
                 if pattern_confirmed:
-                    print(f"✅ Exit pattern confirmed for {trade_direction} spread")
-                    success = await execute_trade_exit(ib, trade_info, current_price, "Pattern and price exit conditions met")
+                    print(f"✅ All conditions met! Executing stop loss for {trade_direction} spread")
+                    success = await execute_trade_exit(ib, trade_info, current_price, "Stop loss: Both triggers + pattern confirmed")
+                    
+                    # Clean up trigger state
+                    if main_order_id in trade_trigger_states:
+                        del trade_trigger_states[main_order_id]
+                    
                     return success
                 else:
-                    print("Price condition met but pattern not confirmed yet")
+                    print("⏳ Both triggers met but pattern not confirmed yet, waiting...")
             
             # Wait before next check
             await asyncio.sleep(60)  # Check every minute
             
         except Exception as e:
-            print(f"Error in exit monitoring: {e}")
+            print(f"❌ Error in exit monitoring: {e}")
             await asyncio.sleep(60)
             continue
+
+async def check_historical_triggers(ib, order_id, symbol, trade_direction, prev_high, prev_low):
+    """
+    Check if triggers already occurred when starting monitoring
+    This handles cases where:
+    1. Program starts anytime during the day
+    2. Today's open was already against position
+    3. Price already went beyond previous day levels
+    """
+    print(f"🔍 Checking for historical triggers...")
+    
+    current_price = await get_current_stock_price(ib, symbol)
+    if not current_price:
+        return
+    
+    current_time = datetime.now().time()
+    
+    # Get today's opening price if we're after market open
+    today_open = await get_today_open_price(ib, symbol)
+    
+    # Check if today's open was against the position
+    if today_open and current_time >= dtime(9, 30):  # Market has opened today
+        if trade_direction == 'bull' and today_open < prev_low:
+            trade_trigger_states[order_id]['trigger_1_open_against'] = True
+            trade_trigger_states[order_id]['trigger_1_time'] = datetime.now().replace(hour=9, minute=30)
+            print(f"🔴 HISTORICAL TRIGGER-1 BULL: Today's open {today_open} < prev low {prev_low}")
+        
+        elif trade_direction == 'bear' and today_open > prev_high:
+            trade_trigger_states[order_id]['trigger_1_open_against'] = True
+            trade_trigger_states[order_id]['trigger_1_time'] = datetime.now().replace(hour=9, minute=30)
+            print(f"🔴 HISTORICAL TRIGGER-1 BEAR: Today's open {today_open} > prev high {prev_high}")
+    
+    # Check if current price is already beyond previous day levels (may have happened earlier)
+    check_trigger_1_price_levels(order_id, current_price, trade_direction, prev_high, prev_low)
+    
+    # Check if price is already beyond strike (may have happened earlier)
+    check_trigger_2_beyond_strike(order_id, current_price, trade_direction, trade_trigger_states[order_id]['sell_strike'])
+
+async def get_today_open_price(ib, symbol):
+    """Get today's opening price"""
+    try:
+        from ib_insync import Stock
+        stock = Stock(symbol, 'SMART', 'USD')
+        await ib.qualifyContractsAsync(stock)
+        
+        # Request today's bars to get open price
+        bars = ib.reqHistoricalData(
+            stock, 
+            endDateTime='', 
+            durationStr='1 D',
+            barSizeSetting='1 day',
+            whatToShow='TRADES',
+            useRTH=True
+        )
+        
+        if bars:
+            return bars[-1].open  # Today's open
+        return None
+        
+    except Exception as e:
+        print(f"❌ Error getting today's open price: {e}")
+        return None
+
+def check_trigger_1_price_levels(order_id, current_price, trade_direction, prev_high, prev_low):
+    """
+    Check Trigger-1: Price beyond previous day high/low levels
+    This can happen anytime during the day, not just at open
+    """
+    if trade_trigger_states[order_id]['trigger_1_open_against']:
+        return  # Already triggered
+    
+    trigger_1_met = False
+    
+    if trade_direction == 'bull':
+        # Bull: Trigger if price goes below previous day low anytime
+        if current_price < prev_low:
+            trigger_1_met = True
+            print(f"🔴 TRIGGER-1 BULL: Current price {current_price} < prev low {prev_low}")
+    
+    elif trade_direction == 'bear':
+        # Bear: Trigger if price goes above previous day high anytime
+        if current_price > prev_high:
+            trigger_1_met = True
+            print(f"🔴 TRIGGER-1 BEAR: Current price {current_price} > prev high {prev_high}")
+    
+    if trigger_1_met:
+        trade_trigger_states[order_id]['trigger_1_open_against'] = True
+        trade_trigger_states[order_id]['trigger_1_time'] = datetime.now()
+        print(f"🚨 TRIGGER-1 ACTIVATED for trade {order_id}")
+
+def check_trigger_2_beyond_strike(order_id, current_price, trade_direction, sell_strike):
+    """
+    Check Trigger-2: Price beyond sell strike
+    Can happen any time during the day
+    """
+    if trade_trigger_states[order_id]['trigger_2_beyond_strike']:
+        return  # Already triggered
+    
+    trigger_2_met = False
+    
+    if trade_direction == 'bull':
+        # Bull: Trigger if price below sell strike
+        if current_price < sell_strike:
+            trigger_2_met = True
+            print(f"🔴 TRIGGER-2 BULL: Price {current_price} < sell strike {sell_strike}")
+    
+    elif trade_direction == 'bear':
+        # Bear: Trigger if price above sell strike
+        if current_price > sell_strike:
+            trigger_2_met = True
+            print(f"🔴 TRIGGER-2 BEAR: Price {current_price} > sell strike {sell_strike}")
+    
+    if trigger_2_met:
+        trade_trigger_states[order_id]['trigger_2_beyond_strike'] = True
+        trade_trigger_states[order_id]['trigger_2_time'] = datetime.now()
+        print(f"🚨 TRIGGER-2 ACTIVATED for trade {order_id}")
+
+def can_execute_stop_loss(order_id, current_time):
+    """
+    Check if stop loss can be executed:
+    1. Both triggers must be activated
+    2. Current time must be after 10:00 AM
+    """
+    state = trade_trigger_states.get(order_id)
+    if not state:
+        return False
+    
+    # Check if after 10:00 AM
+    if current_time < dtime(10, 0):
+        print("⏰ Before 10:00 AM, cannot execute stop loss yet")
+        return False
+    
+    # Check if both triggers are activated
+    both_triggers = state['trigger_1_open_against'] and state['trigger_2_beyond_strike']
+    
+    if both_triggers:
+        print(f"🟢 Both triggers active! Trigger-1: {state['trigger_1_time']}, Trigger-2: {state['trigger_2_time']}")
+        return True
+    else:
+        missing = []
+        if not state['trigger_1_open_against']:
+            missing.append("Trigger-1 (open/price against)")
+        if not state['trigger_2_beyond_strike']:
+            missing.append("Trigger-2 (beyond strike)")
+        print(f"⚠️ Missing triggers: {', '.join(missing)}")
+        return False
+
+async def get_current_stock_price(ib, symbol):
+    """Get current stock price with error handling"""
+    try:
+        stock = Stock(symbol, 'SMART', 'USD')
+        await ib.qualifyContractsAsync(stock)
+        
+        ticker = ib.reqMktData(stock, '', False, False)
+        await asyncio.sleep(2)
+        current_price = ticker.last if ticker.last else ticker.close
+        ib.cancelMktData(stock)
+        
+        return current_price
+    except Exception as e:
+        print(f"❌ Error getting stock price: {e}")
+        return None
+
+def is_trade_still_open(order_id):
+    """Check if trade is still in open trades list"""
+    try:
+        open_trades = load_open_trades()
+        return any(t.get('main_order_id') == order_id and t.get('status') == 'Open' for t in open_trades)
+    except:
+        return False
 
 async def execute_trade_exit(ib, trade_info, exit_price, exit_reason):
     """Execute the exit of a trade"""
@@ -107,6 +284,7 @@ async def execute_trade_exit(ib, trade_info, exit_price, exit_reason):
             for trade in ib.trades():
                 if trade.order.orderId == close_order_id:
                     ib.cancelOrder(trade.order)
+                    print(f"🚫 Cancelled existing close order {close_order_id}")
                     break
         
         # Place market order to close immediately
@@ -131,7 +309,7 @@ async def execute_trade_exit(ib, trade_info, exit_price, exit_reason):
         return True
         
     except Exception as e:
-        print(f"Error executing trade exit: {e}")
+        print(f"❌ Error executing trade exit: {e}")
         return False
 
 def remove_from_open_trades(order_id):
@@ -140,9 +318,9 @@ def remove_from_open_trades(order_id):
         trades = load_open_trades()
         updated_trades = [t for t in trades if t.get('main_order_id') != order_id]
         save_open_trades(updated_trades)
-        print(f"Removed trade {order_id} from open trades")
+        print(f"🗑️ Removed trade {order_id} from open trades")
     except Exception as e:
-        print(f"Error removing from open trades: {e}")
+        print(f"❌ Error removing from open trades: {e}")
 
 async def monitor_all_open_trades(ib):
     """Monitor all open trades for exit conditions"""
@@ -150,10 +328,10 @@ async def monitor_all_open_trades(ib):
         open_trades = load_open_trades()
         
         if not open_trades:
-            print("No open trades to monitor")
+            print("📭 No open trades to monitor")
             return
         
-        print(f"Monitoring {len(open_trades)} open trades")
+        print(f"👀 Monitoring {len(open_trades)} open trades")
         
         # Create monitoring tasks for each trade
         tasks = []
@@ -164,10 +342,11 @@ async def monitor_all_open_trades(ib):
         
         if tasks:
             # Run all monitoring tasks concurrently
-            await asyncio.gather(*tasks, return_exceptions=True)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            print(f"✅ Monitoring completed for all trades")
         
     except Exception as e:
-        print(f"Error monitoring open trades: {e}")
+        print(f"❌ Error monitoring open trades: {e}")
 
 def should_monitor_trades():
     """Check if we should be monitoring trades (market hours)"""
@@ -181,3 +360,7 @@ def should_monitor_trades():
     end_time = dtime(16, 0)
     
     return start_time <= current_time <= end_time
+
+def get_trade_trigger_status():
+    """Get current trigger status for all trades (for debugging)"""
+    return trade_trigger_states.copy()
