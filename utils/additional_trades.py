@@ -110,36 +110,45 @@ async def execute_additional_trade(ib, symbol, expiry, opportunity_data, quantit
         if not combo or not main_order:
             print("Failed to create additional spread order")
             return None
+        try:
+            # Create closing order
+            close_order = await create_close_order(ib, quantity)
+            close_order.parentId = main_order.orderId
         
-        # Create closing order
-        close_order = await create_close_order(combo, quantity)
+            # Place orders
+            main_trade = ib.placeOrder(combo, main_order)
+            # Verify order status
+            print(f"Order status: {main_trade.orderStatus.status}")
+            if main_trade.orderStatus.status == 'Cancelled':
+                print(f"Order was cancelled: {main_trade.log}")
+                return None
+            # Place the closing order
+            close_trade = ib.placeOrder(combo, close_order)
         
-        # Place orders
-        main_trade = ib.placeOrder(combo, main_order)
-        await asyncio.sleep(2)
-        close_trade = ib.placeOrder(combo, close_order)
-        
-        # Log the additional trade
-        trade_info = {
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "trade_type": "Additional",
-            "trade_direction": trade_direction,
-            "spread": f"{symbol} {sell_option.strike}/{buy_option.strike} {expiry}",
-            "option_type": sell_option.right,
-            "quantity": quantity,
-            "target_premium": premium,
-            "status": "Open",
-            "sell_strike": sell_option.strike,
-            "buy_strike": buy_option.strike,
-            "sell_delta": opportunity_data.get('delta'),
-            "main_order_id": main_trade.order.orderId,
-            "close_order_id": close_trade.order.orderId
-        }
-        
-        save_trade_to_log(trade_info)
-        print(f"✅ Additional {trade_direction} spread trade placed successfully")
-        
-        return trade_info
+            # Log the additional trade
+            trade_info = {
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "trade_type": "Additional",
+                "trade_direction": trade_direction,
+                "spread": f"{symbol} {sell_option.strike}/{buy_option.strike} {expiry}",
+                "option_type": sell_option.right,
+                "quantity": quantity,
+                "target_premium": premium,
+                "status": "Open",
+                "sell_strike": sell_option.strike,
+                "buy_strike": buy_option.strike,
+                "sell_delta": opportunity_data.get('delta'),
+                "main_order_id": main_trade.order.orderId,
+                "close_order_id": close_trade.order.orderId
+            }
+            
+            save_trade_to_log(trade_info)
+            print(f"✅ Additional {trade_direction} spread trade placed successfully")
+            
+            return trade_info
+        except Exception as e:
+            print(f"Error placing spread orders: {e}")
+            return None
         
     except Exception as e:
         print(f"Error executing additional trade: {e}")
