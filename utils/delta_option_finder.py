@@ -32,7 +32,7 @@ async def find_option_by_delta_range(ib, symbol, expiry, option_type, stockPrice
 
         # Get current price robustly
         data = ib.reqMktData(stock, '', True, False)
-        await asyncio.sleep(5)
+        await asyncio.sleep(2)
         current_price = data.last
         ib.cancelMktData(stock)
         if current_price is None or math.isnan(current_price):

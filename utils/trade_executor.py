@@ -24,9 +24,8 @@ async def determine_trade_direction(daily_close_price, daily_close_ha):
 
 def clean_limit_order(order):
     fields_none = [
-        'auxPrice', 'minQty', 'percentOffset', 'trailStopPrice',
+        'auxPrice', 'volatility', 'minQty', 'percentOffset', 'trailStopPrice',
         'trailingPercent', 'goodAfterTime', 'goodTillDate'
-        #,'volatility'
     ]
     fields_list = [
         'conditions', 'orderComboLegs', 'orderMiscOptions', 'algoParams', 'smartComboRoutingParams'
@@ -37,28 +36,23 @@ def clean_limit_order(order):
     for field in fields_list:
         if hasattr(order, field):
             setattr(order, field, [])
-    
-    # Remove volatility attribute entirely
-    if hasattr(order, 'volatility'):
-        delattr(order, 'volatility')
-        
     return order
 
+def validate_order(order):
+    """Validate an order before submission"""
+    if not isinstance(order, Order):
+        raise ValueError("Not a valid Order object")
+    
+    if hasattr(order, 'volatility'):
+        raise ValueError("Order contains volatility attribute")
+    
+    if order.orderType == 'LMT' and order.lmtPrice is None:
+        raise ValueError("Limit order requires lmtPrice")
+    
+    return True
+
 async def create_spread_order(ib, sell_option, buy_option, quantity, premium_target, is_bull_spread=True):
-    """
-    Create a spread order for the given options
-    
-    Args:
-        ib: IBKR connection
-        sell_option: Option to sell (short leg)
-        buy_option: Option to buy (long leg)  
-        quantity: Number of contracts
-        premium_target: Target premium to collect
-        is_bull_spread: True for bull spread, False for bear spread
-    
-    Returns:
-        Spread contract and order, or None if invalid
-    """
+    """Create a spread order with minimal fields to avoid volatility issues"""
     try:
         # Qualify the contracts
         await ib.qualifyContractsAsync(sell_option, buy_option)
@@ -75,35 +69,42 @@ async def create_spread_order(ib, sell_option, buy_option, quantity, premium_tar
             ]
         )
         
-        # Calculate the limit price (negative because we're buying the spread)
-        limit_price = -abs(premium_target / 100)  # Convert to per-share price
+        # Create proper Order object
+        order = Order()
+        order.action = 'BUY'
+        order.orderType = 'LMT'
+        order.totalQuantity = quantity
+        order.lmtPrice = round(-abs(premium_target / 100), 2)
+        order.tif = 'DAY'
+        order.transmit = True
         
-        # Create the order
-        order = Order(
-            action='BUY',  # Buying the spread (selling higher premium option)
-            orderType='LMT',
-            totalQuantity=quantity,
-            lmtPrice=limit_price,
-            tif='DAY',
-            transmit=True  # Don't transmit yet
-        )         
+        #order = clean_limit_order(order);
+        
         return combo, order
         
     except Exception as e:
         print(f"Error creating spread order: {e}")
         return None, None
 
-async def create_close_order(combo, quantity):
+async def create_close_order(ib, quantity):
     """Create an order to close the spread position"""
-    close_order = Order(
-        action='SELL',  # Selling the spread to close
-        orderType='LMT',
-        totalQuantity=quantity,
-        lmtPrice=0.05,  # $0.05 limit as specified
-        tif='GTC',
-        transmit=False
-    )
-    return close_order
+    try:
+        # Create proper Order object
+        close_order = Order()
+        close_order.action = 'SELL'
+        close_order.orderType = 'LMT'
+        close_order.totalQuantity = quantity
+        close_order.lmtPrice = 0.05
+        close_order.tif = 'GTC'
+        close_order.transmit = False
+        
+        #close_order = clean_limit_order(close_order);
+        
+        return close_order
+        
+    except Exception as e:
+        print(f"Error creating close order: {e}")
+        return None
 
 async def execute_daily_trade(ib, symbol, expiry, daily_close_price, daily_close_ha):#, trade_direction, quantity):
     """
@@ -180,24 +181,30 @@ async def execute_daily_trade(ib, symbol, expiry, daily_close_price, daily_close
 
     if not combo or not main_order:
         print("Failed to create daily spread order")
-        return None
-
-    # Create the closing order at $0.05
-    close_order = await create_close_order(combo, quantity)
+        return None    
 
     try:
         # Place the main order
-        main_order = clean_limit_order(main_order)
+        #main_order = clean_limit_order(main_order)
+
         print(vars(main_order))  # Should NOT show 'volatility'
-        main_trade = ib.placeOrder(combo, main_order)
-        await asyncio.sleep(2)  # Wait for order to be processed
         
+        # Create the closing order at $0.05
+        close_order = await create_close_order(ib, quantity)
+        close_order.parentId = main_order.orderId
+
+        main_trade = ib.placeOrder(combo, main_order)
+        
+        # Verify order status
+        print(f"Order status: {main_trade.orderStatus.status}")
+        if main_trade.orderStatus.status == 'Cancelled':
+            print(f"Order was cancelled: {main_trade.log}")
+            return None
         # Place the closing order
-        close_order = clean_limit_order(close_order)
-        print(vars(close_order))  # Should NOT show 'volatility'
         close_trade = ib.placeOrder(combo, close_order)
 
         # Log the trade
+        print("📋 Creating trade info...")
         trade_info = {
             "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "trade_type": "Main",
@@ -215,7 +222,8 @@ async def execute_daily_trade(ib, symbol, expiry, daily_close_price, daily_close
             "main_order_id": main_trade.order.orderId,
             "close_order_id": close_trade.order.orderId
         }
-
+        
+        print("📋 Saving trade to log...")
         save_trade_to_log(trade_info)
         print(f"✅ Daily {trade_direction} spread trade placed successfully")
 
