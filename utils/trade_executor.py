@@ -22,22 +22,6 @@ async def determine_trade_direction(daily_close_price, daily_close_ha):
     else:
         return 'bear'
 
-def clean_limit_order(order):
-    fields_none = [
-        'auxPrice', 'volatility', 'minQty', 'percentOffset', 'trailStopPrice',
-        'trailingPercent', 'goodAfterTime', 'goodTillDate'
-    ]
-    fields_list = [
-        'conditions', 'orderComboLegs', 'orderMiscOptions', 'algoParams', 'smartComboRoutingParams'
-    ]
-    for field in fields_none:
-        if hasattr(order, field):
-            setattr(order, field, None)
-    for field in fields_list:
-        if hasattr(order, field):
-            setattr(order, field, [])
-    return order
-
 def validate_order(order):
     """Validate an order before submission"""
     if not isinstance(order, Order):
@@ -77,9 +61,6 @@ async def create_spread_order(ib, sell_option, buy_option, quantity, premium_tar
         order.lmtPrice = round(-abs(premium_target / 100), 2)
         order.tif = 'DAY'
         order.transmit = True
-        
-        #order = clean_limit_order(order);
-        
         return combo, order
         
     except Exception as e:
@@ -97,9 +78,6 @@ async def create_close_order(ib, quantity):
         close_order.lmtPrice = 0.05
         close_order.tif = 'GTC'
         close_order.transmit = False
-        
-        #close_order = clean_limit_order(close_order);
-        
         return close_order
         
     except Exception as e:
@@ -184,15 +162,11 @@ async def execute_daily_trade(ib, symbol, expiry, daily_close_price, daily_close
         return None    
 
     try:
-        # Place the main order
-        #main_order = clean_limit_order(main_order)
-
-        print(vars(main_order))  # Should NOT show 'volatility'
-        
         # Create the closing order at $0.05
         close_order = await create_close_order(ib, quantity)
         close_order.parentId = main_order.orderId
 
+        # Place the main order
         main_trade = ib.placeOrder(combo, main_order)
         
         # Verify order status
