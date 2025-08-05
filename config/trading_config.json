@@ -1,10 +1,12 @@
 {
+    "_comment": "This is a template for trading_config.json. Copy this to trading_config.json and customize your values.",
     "account_settings": {
         "account_value": 100000,
         "risk_per_trade": 0.02,
         "max_trades_per_day": 2
     },
     "trade_quantity": {
+        "_comment": "Trade quantity will be automatically adjusted based on performance",
         "default_quantity": 30,
         "min_quantity": 10,
         "max_quantity": 100,
@@ -16,6 +18,7 @@
         "trades_at_last_adjustment": 0
     },
     "spread_settings": {
+        "_comment": "Premium requirements for different scenarios",
         "spread_width": 10,
         "min_premium_tier_1": 0.55,
         "min_premium_tier_2": 0.45,
@@ -23,10 +26,12 @@
         "min_premium_next_day_after_12": 0.35
     },
     "delta_settings": {
+        "_comment": "Delta targeting for option selection",
         "delta_search_range": [0.24, 0.23, 0.22, 0.21, 0.20],
         "target_delta_tolerance": 0.01
     },
     "trading_times": {
+        "_comment": "All times in Eastern Time (ET)",
         "trade_execution_start": "15:55",
         "trade_execution_end": "16:00",
         "fallback_execution_end": "16:00",
@@ -35,15 +40,18 @@
         "additional_trade_window_end": "15:30"
     },
     "exit_patterns": {
+        "_comment": "15-minute candlestick patterns for exits",
         "bull_exit_pattern": ["green", "green", "red"],
         "bear_exit_pattern": ["red", "red", "green"],
         "pattern_timeframe": "15min"
     },
     "additional_trade_patterns": {
+        "_comment": "Patterns for additional trade entries",
         "bull_additional_pattern": ["red", "red", "green"],
         "bear_additional_pattern": ["green", "green", "red"]
     },
     "additional_trade_limits": {
+        "_comment": "Limits based on H-A strategy performance",
         "max_additional_if_profitable": 2,
         "max_additional_if_unprofitable": 1
     },
@@ -58,6 +66,7 @@
         "log_level": "INFO"
     },
     "ibkr_settings": {
+        "_comment": "IBKR connection settings",
         "host": "127.0.0.1",
         "port": 7497,
         "client_id": 1,
