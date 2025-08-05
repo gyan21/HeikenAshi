@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime, time as dtime
 from ib_insync import Stock, Order
+from utils.excel_logger import log_trade_exit, update_trade_triggers
 from utils.pattern_utils import check_exit_pattern, get_previous_day_data
 from utils.logger import save_trade_to_log
 from utils.trade_utils import load_open_trades, save_open_trades
