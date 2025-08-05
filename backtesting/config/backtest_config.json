@@ -1,0 +1,119 @@
+{
+    "_comment": "This is a template for trading_config.json. Copy this to trading_config.json and customize your values.",
+    "account_settings": {
+        "account_value": 100000,
+        "risk_per_trade": 0.02,
+        "max_trades_per_day": 2
+    },
+    "trade_quantity": {
+        "_comment": "Trade quantity will be automatically adjusted based on performance",
+        "default_quantity": 30,
+        "min_quantity": 10,
+        "max_quantity": 100,
+        "adjustment_step": 10,
+        "target_win_rate": 0.7,
+        "evaluation_period": 10,
+        "minimum_days_between_adjustments": 14,
+        "last_adjustment_date": null,
+        "trades_at_last_adjustment": 0
+    },
+    "spread_settings": {
+        "_comment": "Premium requirements for different scenarios",
+        "spread_width": 10,
+        "min_premium_tier_1": 0.55,
+        "min_premium_tier_2": 0.45,
+        "min_premium_next_day_before_12": 0.5,
+        "min_premium_next_day_after_12": 0.35
+    },
+    "delta_settings": {
+        "_comment": "Delta targeting for option selection",
+        "delta_search_range": [
+            0.24,
+            0.23,
+            0.22,
+            0.21,
+            0.2
+        ],
+        "target_delta_tolerance": 0.01
+    },
+    "trading_times": {
+        "_comment": "All times in Eastern Time (ET)",
+        "trade_execution_start": "15:55",
+        "trade_execution_end": "16:00",
+        "fallback_execution_end": "16:00",
+        "pattern_monitoring_start": "10:00",
+        "additional_trade_window_start": "09:30",
+        "additional_trade_window_end": "15:30"
+    },
+    "exit_patterns": {
+        "_comment": "15-minute candlestick patterns for exits",
+        "bull_exit_pattern": [
+            "green",
+            "green",
+            "red"
+        ],
+        "bear_exit_pattern": [
+            "red",
+            "red",
+            "green"
+        ],
+        "pattern_timeframe": "15min"
+    },
+    "additional_trade_patterns": {
+        "_comment": "Patterns for additional trade entries",
+        "bull_additional_pattern": [
+            "red",
+            "red",
+            "green"
+        ],
+        "bear_additional_pattern": [
+            "green",
+            "green",
+            "red"
+        ]
+    },
+    "additional_trade_limits": {
+        "_comment": "Limits based on H-A strategy performance",
+        "max_additional_if_profitable": 2,
+        "max_additional_if_unprofitable": 1
+    },
+    "monitoring_settings": {
+        "stop_loss_after_time": "10:00",
+        "monitor_additional_trades": false,
+        "price_check_interval": 60
+    },
+    "logging_settings": {
+        "excel_log_path": "logs/trade_log.xlsx",
+        "debug_mode": false,
+        "log_level": "INFO"
+    },
+    "ibkr_settings": {
+        "_comment": "IBKR connection settings",
+        "host": "127.0.0.1",
+        "port": 7497,
+        "client_id": 1,
+        "timeout": 10
+    },
+    "symbol_settings": {
+        "primary_symbol": "SPY",
+        "exchange": "SMART",
+        "currency": "USD"
+    },
+    "risk_management": {
+        "max_loss_per_trade": 1000,
+        "max_daily_loss": 5000,
+        "position_size_limit": 0.05
+    },
+    "version": "1.0",
+    "last_updated": "2025-08-04T00:00:00.000000",
+    "backtest_settings": {
+        "symbol": "SPY",
+        "start_date": "2023-01-01",
+        "end_date": "2024-08-01",
+        "initial_capital": 100000,
+        "commission_per_trade": 2.0,
+        "slippage": 0.01,
+        "volatility_assumption": 0.25,
+        "pattern_confirmation_rate": 0.3
+    }
+}
