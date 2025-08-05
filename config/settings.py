@@ -9,9 +9,10 @@ TRADE_QUANTITY_CONFIG_FILE = "trade_quantity_config.json"
 
 # Spread configuration
 SPREAD_WIDTH = 10  # Points
-MIN_PREMIUM_TIER_1 = 55  # First attempt minimum premium per contract
-MIN_PREMIUM_TIER_2 = 45  # Fallback minimum premium per contract
-MIN_PREMIUM_NEXT_DAY = 25  # Next day additional trade minimum premium
+MIN_PREMIUM_TIER_1 = .55  # First attempt minimum premium per contract
+MIN_PREMIUM_TIER_2 = .45  # Fallback minimum premium per contract
+MIN_PREMIUM_NEXT_DAY_BEFORE_12 = .50  # Next day additional trade minimum premium
+MIN_PREMIUM_NEXT_DAY_AFTER_12 = .35  # Next day additional trade minimum premium
 
 # Delta search configuration
 DELTA_SEARCH_RANGE = [0.24, 0.23, 0.22, 0.21, 0.20]

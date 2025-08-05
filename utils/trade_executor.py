@@ -84,7 +84,7 @@ async def create_spread_order(ib, sell_option, buy_option, quantity, premium_tar
         order.action = 'BUY'
         order.orderType = 'LMT'
         order.totalQuantity = quantity
-        order.lmtPrice = round(-abs(premium_target / 100), 2)
+        order.lmtPrice = round(-abs(premium_target), 2)
         order.tif = 'DAY'
         order.transmit = True
         return combo, order

@@ -165,7 +165,7 @@ async def calculate_spread_premium(ib, sell_option, buy_option):
 
         # Premium is what we collect (sell - buy)
         premium = sell_mid - buy_mid
-        return max(0, premium * 100)  # Convert to dollars per contract
+        return max(0, premium)  # Convert to dollars per contract
 
     except Exception as e:
         print(f"Error calculating spread premium: {e}")

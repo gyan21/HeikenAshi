@@ -5,7 +5,7 @@ from utils.pattern_utils import check_additional_entry_pattern
 from utils.delta_option_finder import find_both_options_for_spread, calculate_spread_premium
 from utils.trade_executor import create_spread_order, create_close_order
 from utils.logger import save_trade_to_log
-from config.settings import MIN_PREMIUM_NEXT_DAY, SPREAD_WIDTH
+from config.settings import MIN_PREMIUM_NEXT_DAY, MIN_PREMIUM_NEXT_DAY_AFTER_12, MIN_PREMIUM_NEXT_DAY_BEFORE_12, SPREAD_WIDTH
 from utils.pattern_utils import check_additional_entry_pattern
 from utils.delta_option_finder import find_option_by_delta_range, calculate_spread_premium
 from utils.trade_executor import create_spread_order, create_close_order
@@ -283,8 +283,8 @@ async def scan_for_additional_opportunities(ib, symbol, expiry):
         print(f"💵 Additional trade premium: ${premium:.2f}")
         
         # Check if premium meets minimum requirement
-        if premium < min_premium * 100:  # Convert to cents
-            print(f"❌ Premium ${premium/100:.2f} below minimum ${min_premium:.2f}")
+        if premium < min_premium :  # Convert to cents
+            print(f"❌ Premium ${premium:.2f} below minimum ${min_premium:.2f}")
             return False
         
         # Execute additional trade
@@ -368,12 +368,13 @@ def get_minimum_premium_requirement(current_time):
     Before 12pm: $0.50
     After 12pm: $0.35
     """
+    from datetime import time as dtime
     noon = dtime(12, 0)
     
     if current_time < noon:
-        return 0.50  # Before 12pm
+        return MIN_PREMIUM_NEXT_DAY_BEFORE_12  # Before 12pm
     else:
-        return 0.35  # After 12pm
+        return MIN_PREMIUM_NEXT_DAY_AFTER_12  # After 12pm
 
 def get_todays_trades():
     """Get all trades from today"""
@@ -460,7 +461,7 @@ async def execute_additional_trade(ib, symbol, expiry, sell_option, buy_option, 
         
         # Create spread order
         combo, main_order = await create_spread_order(
-            ib, sell_option, buy_option, quantity, min_premium * 100, 
+            ib, sell_option, buy_option, quantity, min_premium, 
             is_bull_spread=(trade_direction == 'bull')
         )
         
@@ -506,7 +507,7 @@ async def execute_additional_trade(ib, symbol, expiry, sell_option, buy_option, 
         save_open_trades(open_trades)
         
         print(f"✅ Additional {trade_direction} spread trade executed successfully")
-        print(f"💰 Premium: ${premium/100:.2f}, Quantity: {quantity}")
+        print(f"💰 Premium: ${premium:.2f}, Quantity: {quantity}")
         
         return True
         
