@@ -167,30 +167,28 @@ async def get_today_open_price(ib, symbol):
         return None
 
 def check_trigger_1_price_levels(order_id, current_price, trade_direction, prev_high, prev_low):
-    """
-    Check Trigger-1: Price beyond previous day high/low levels
-    This can happen anytime during the day, not just at open
-    """
+    """Check Trigger-1 and log to Excel"""
     if trade_trigger_states[order_id]['trigger_1_open_against']:
-        return  # Already triggered
+        return
     
     trigger_1_met = False
     
     if trade_direction == 'bull':
-        # Bull: Trigger if price goes below previous day low anytime
         if current_price < prev_low:
             trigger_1_met = True
             print(f"🔴 TRIGGER-1 BULL: Current price {current_price} < prev low {prev_low}")
-    
     elif trade_direction == 'bear':
-        # Bear: Trigger if price goes above previous day high anytime
         if current_price > prev_high:
             trigger_1_met = True
             print(f"🔴 TRIGGER-1 BEAR: Current price {current_price} > prev high {prev_high}")
     
     if trigger_1_met:
+        trigger_time = datetime.now()
         trade_trigger_states[order_id]['trigger_1_open_against'] = True
-        trade_trigger_states[order_id]['trigger_1_time'] = datetime.now()
+        trade_trigger_states[order_id]['trigger_1_time'] = trigger_time
+        
+        # Log to Excel
+        update_trade_triggers(order_id, trigger_1_time=trigger_time)
         print(f"🚨 TRIGGER-1 ACTIVATED for trade {order_id}")
 
 def check_trigger_2_beyond_strike(order_id, current_price, trade_direction, sell_strike):
@@ -275,7 +273,7 @@ def is_trade_still_open(order_id):
         return False
 
 async def execute_trade_exit(ib, trade_info, exit_price, exit_reason):
-    """Execute the exit of a trade"""
+    """Execute trade exit and log to Excel"""
     try:
         # Cancel the existing closing order and place market order
         close_order_id = trade_info.get('close_order_id')
@@ -305,6 +303,9 @@ async def execute_trade_exit(ib, trade_info, exit_price, exit_reason):
         
         # Remove from open trades
         remove_from_open_trades(trade_info.get('main_order_id'))
+        
+        # Log exit to Excel
+        log_trade_exit(trade_info, exit_price, exit_reason)
         
         return True
         
