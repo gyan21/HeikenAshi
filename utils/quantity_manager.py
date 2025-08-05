@@ -3,6 +3,7 @@ import os
 from datetime import datetime, timedelta
 from config.settings import DEFAULT_TRADE_QUANTITY, TRADE_QUANTITY_CONFIG_FILE
 from utils.logger import TRADE_LOG_FILE
+from config.config_manager import config_manager
 
 def load_trade_quantity():
     """Load current trade quantity from configuration file"""
@@ -88,5 +89,21 @@ def update_trade_quantity_if_needed():
         return current_quantity
 
 def get_current_trade_quantity():
-    """Get current trade quantity, with automatic adjustment if needed"""
-    return update_trade_quantity_if_needed()
+    """
+    Get current trade quantity with performance-based adjustment
+    """
+    return config_manager.get_current_trade_quantity()
+
+def get_quantity_info():
+    """Get detailed quantity information"""
+    stats = config_manager.get_recent_trade_statistics()
+    current_quantity = config_manager.get('trade_quantity.default_quantity')
+    
+    return {
+        'current_quantity': current_quantity,
+        'recent_win_rate': stats.get('win_rate', 0),
+        'recent_trades': stats.get('total_trades', 0),
+        'target_win_rate': config_manager.get('trade_quantity.target_win_rate') * 100,
+        'min_quantity': config_manager.get('trade_quantity.min_quantity'),
+        'max_quantity': config_manager.get('trade_quantity.max_quantity')
+    }

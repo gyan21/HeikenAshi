@@ -1,34 +1,44 @@
-# Configuration for Heikin-Ashi Credit Spread Trading Algorithm
-ACCOUNT_VALUE = 100_000
-RISK_PER_TRADE = 0.02
-MAX_TRADES_PER_DAY = 2
+# config/settings.py - Simplified to just import from config manager
+from config.config_manager import config_manager
 
-# Trade quantity configuration
-DEFAULT_TRADE_QUANTITY = 30
-TRADE_QUANTITY_CONFIG_FILE = "trade_quantity_config.json"
+# Account settings
+ACCOUNT_VALUE = config_manager.get('account_settings.account_value', 100000)
+RISK_PER_TRADE = config_manager.get('account_settings.risk_per_trade', 0.02)
+MAX_TRADES_PER_DAY = config_manager.get('account_settings.max_trades_per_day', 2)
+
+# Trade quantity (dynamic based on performance)
+DEFAULT_TRADE_QUANTITY = config_manager.get_current_trade_quantity()
 
 # Spread configuration
-SPREAD_WIDTH = 10  # Points
-MIN_PREMIUM_TIER_1 = .55  # First attempt minimum premium per contract
-MIN_PREMIUM_TIER_2 = .45  # Fallback minimum premium per contract
-MIN_PREMIUM_NEXT_DAY_BEFORE_12 = .50  # Next day additional trade minimum premium
-MIN_PREMIUM_NEXT_DAY_AFTER_12 = .35  # Next day additional trade minimum premium
+SPREAD_WIDTH = config_manager.get('spread_settings.spread_width', 10)
+MIN_PREMIUM_TIER_1 = config_manager.get('spread_settings.min_premium_tier_1', 0.55)
+MIN_PREMIUM_TIER_2 = config_manager.get('spread_settings.min_premium_tier_2', 0.45)
+MIN_PREMIUM_NEXT_DAY_BEFORE_12 = config_manager.get('spread_settings.min_premium_next_day_before_12', 0.50)
+MIN_PREMIUM_NEXT_DAY_AFTER_12 = config_manager.get('spread_settings.min_premium_next_day_after_12', 0.35)
 
 # Delta search configuration
-DELTA_SEARCH_RANGE = [0.24, 0.23, 0.22, 0.21, 0.20]
+DELTA_SEARCH_RANGE = config_manager.get('delta_settings.delta_search_range', [0.24, 0.23, 0.22, 0.21, 0.20])
 
-# Trading times (ET)
-TRADE_EXECUTION_START = "15:55"  # 3:55 PM ET
-TRADE_EXECUTION_END = "16:00"    # 4:00 PM ET
-FALLBACK_EXECUTION_END = "16:00" # 4:00 PM ET
-PATTERN_MONITORING_START = "10:00"  # 10:00 AM ET
+# Trading times
+TRADE_EXECUTION_START = config_manager.get('trading_times.trade_execution_start', "15:55")
+TRADE_EXECUTION_END = config_manager.get('trading_times.trade_execution_end', "16:00")
+FALLBACK_EXECUTION_END = config_manager.get('trading_times.fallback_execution_end', "16:00")
+PATTERN_MONITORING_START = config_manager.get('trading_times.pattern_monitoring_start', "10:00")
 
-# Exit pattern requirements
-BULL_EXIT_PATTERN = ["green", "green", "red"]  # GGR for 15-min candles
-BEAR_EXIT_PATTERN = ["red", "red", "green"]    # RRG for 15-min candles
+# Exit patterns
+BULL_EXIT_PATTERN = config_manager.get('exit_patterns.bull_exit_pattern', ["green", "green", "red"])
+BEAR_EXIT_PATTERN = config_manager.get('exit_patterns.bear_exit_pattern', ["red", "red", "green"])
 
-# Additional trade patterns (next day)
-BULL_ADDITIONAL_PATTERN = ["red", "red", "green"]  # RRG for bull trades
-BEAR_ADDITIONAL_PATTERN = ["green", "green", "red"] # GGR for bear trades
+# Additional trade patterns
+BULL_ADDITIONAL_PATTERN = config_manager.get('additional_trade_patterns.bull_additional_pattern', ["red", "red", "green"])
+BEAR_ADDITIONAL_PATTERN = config_manager.get('additional_trade_patterns.bear_additional_pattern', ["green", "green", "red"])
 
-DEBUG = True
+# Debug mode
+DEBUG = config_manager.get('logging_settings.debug_mode', True)
+
+# Expose config manager for direct access
+def get_config():
+    return config_manager
+
+def update_config(path, value):
+    return config_manager.set(path, value)

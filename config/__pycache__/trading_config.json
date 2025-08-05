@@ -1,0 +1,37 @@
+{
+    "account_settings": {
+        "account_value": 100000,
+        "risk_per_trade": 0.02,
+        "max_trades_per_day": 2
+    },
+    "trade_quantity": {
+        "default_quantity": 35,
+        "min_quantity": 10,
+        "max_quantity": 100,
+        "adjustment_step": 5,
+        "target_win_rate": 0.70,
+        "evaluation_period": 10,
+        "last_adjustment_date": "2025-08-04"
+    },
+    "spread_settings": {
+        "spread_width": 10,
+        "min_premium_tier_1": 0.55,
+        "min_premium_tier_2": 0.45,
+        "min_premium_next_day_before_12": 0.50,
+        "min_premium_next_day_after_12": 0.35
+    },
+    "delta_settings": {
+        "delta_search_range": [0.24, 0.23, 0.22, 0.21, 0.20],
+        "target_delta_tolerance": 0.01
+    },
+    "trading_times": {
+        "trade_execution_start": "15:55",
+        "trade_execution_end": "16:00",
+        "fallback_execution_end": "16:00",
+        "pattern_monitoring_start": "10:00",
+        "additional_trade_window_start": "09:30",
+        "additional_trade_window_end": "15:30"
+    },
+    "last_updated": "2025-08-04T14:32:15.123456",
+    "version": "1.0"
+}
