@@ -5,7 +5,7 @@ import os
 from datetime import datetime, time as dtime, timedelta
 from utils.ibkr_client import IBKRClient
 from utils.heikin_ashi import get_regular_and_heikin_ashi_close
-from utils.trade_executor import execute_daily_trade, should_execute_daily_trade
+from utils.trade_executor import execute_daily_trade, should_execute_daily_trade, wait_for_next_minute
 from utils.trade_monitor import monitor_all_open_trades, should_monitor_trades
 from utils.additional_trades import scan_for_additional_opportunities, should_scan_additional_opportunities
 from utils.option_utils import get_next_option_expiry
@@ -184,10 +184,14 @@ async def main_strategy_loop(ib_client, symbol, interval=60):
         await asyncio.sleep(sleep_time)
 
 async def main():
-    """Main entry point"""
-    print("=" * 60)
+    """Main function with minute synchronization"""
+    
+    # Wait until start of next minute for consistent timing
+    await wait_for_next_minute()
+    
+    print("============================================================")
     print("HEIKIN-ASHI CREDIT SPREAD TRADING ALGORITHM")
-    print("=" * 60)
+    print("============================================================")
     
     # Connect to IBKR
     ib_client = IBKRClient()

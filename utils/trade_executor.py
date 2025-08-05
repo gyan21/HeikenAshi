@@ -10,6 +10,32 @@ from utils.quantity_manager import get_current_trade_quantity
 from utils.pattern_utils import get_previous_day_data
 from utils.logger import save_trade_to_log
 
+async def wait_for_next_minute():
+    """
+    Wait until the start of the next minute for consistent timing
+    """
+    now = datetime.now()
+    current_seconds = now.second
+    current_microseconds = now.microsecond
+    
+    if current_seconds == 0 and current_microseconds == 0:
+        print("✅ Already at start of minute")
+        return
+    
+    # Calculate seconds to wait until next minute
+    seconds_to_wait = 60 - current_seconds
+    microseconds_to_subtract = current_microseconds / 1_000_000
+    total_wait = seconds_to_wait - microseconds_to_subtract
+    
+    print(f"⏰ Waiting {total_wait:.1f} seconds until start of next minute...")
+    print(f"   Current time: {now.strftime('%H:%M:%S.%f')[:-3]}")
+    
+    await asyncio.sleep(total_wait)
+    
+    # Verify we're at the start of a minute
+    final_time = datetime.now()
+    print(f"✅ Synchronized to: {final_time.strftime('%H:%M:%S.%f')[:-3]}")
+
 async def determine_trade_direction(daily_close_price, daily_close_ha):
     """
     Determine trade direction based on Heikin-Ashi logic
@@ -84,7 +110,7 @@ async def create_close_order(ib, quantity):
         print(f"Error creating close order: {e}")
         return None
 
-async def execute_daily_trade(ib, symbol, expiry, daily_close_price, daily_close_ha):#, trade_direction, quantity):
+async def execute_daily_trade(ib, symbol, expiry, daily_close_price, daily_close_ha):
     """
     Execute the main daily trade based on Heikin-Ashi logic at 3:55 PM ET.
 
@@ -94,8 +120,6 @@ async def execute_daily_trade(ib, symbol, expiry, daily_close_price, daily_close
         expiry: Option expiry
         daily_close_price: Actual daily close price
         daily_close_ha: Heikin-Ashi daily close price
-        trade_direction: 'bull' or 'bear' based on Heikin-Ashi logic
-        quantity: Number of contracts
 
     Returns:
         dict with trade information or None if no trade executed
