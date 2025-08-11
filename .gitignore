@@ -40,3 +40,5 @@ utils/__pycache__/trade_executor.cpython-313.pyc
 *.json
 *.json
 *.csv
+*.pyc
+*.pyc

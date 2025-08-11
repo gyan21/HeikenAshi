@@ -100,6 +100,21 @@ class ConfigManager:
         
         print("✅ Configuration validation passed")
         return True
+    
+    def get_current_trade_quantity(self):
+        """Get the current trade quantity from config"""
+        return self.config.get('trade_settings', {}).get('main_trade_qty', 30)
+
+    def update_trade_quantity(self, new_quantity):
+        """Update the current trade quantity"""
+        if 'trade_settings' not in self.config:
+            self.config['trade_settings'] = {}
+        self.config['trade_settings']['main_trade_qty'] = new_quantity
+        self.save_config()
+        
+    def get_trade_setting(self, setting_name, default_value=None):
+        """Get any trade setting by name"""
+        return self.config.get('trade_settings', {}).get(setting_name, default_value)
 
 # Global config manager instance
 config_manager = ConfigManager()

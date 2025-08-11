@@ -380,26 +380,22 @@ class CompleteHeikenAshiBacktester:
         win_count = 0
         total_count = 0
         
-        # Main backtest loop
+        # Main backtest loop - process pairs of days
         for i in range(len(ha_daily) - 1):
             day1_data = ha_daily.iloc[i]
-            day2_date = ha_daily.iloc[i + 1]['Date']
+            day2_data = ha_daily.iloc[i + 1]
             
-            # Get Day 1 data
             day1_date = day1_data['Date']
-            day_close_1550 = day1_data['Close_1550']  # 5min 15:50 close
+            day2_date = day2_data['Date']
+            
+            day_close_1550 = day1_data['Close_1550']  # 5min 15:50 close on Day 1
             ha_close = day1_data['HA_Close']          # HA close calculated from daily OHLC
             
-            # Get MACD from 15min data at 15:45
+            # Get MACD from 15min data at 15:45 on Day 1
             day1_15m = df_15m[df_15m['Datetime'].dt.date == day1_date]
             macd_diff = self.get_1545_macd(day1_15m)
             
-            # Get Day 2 data for pattern detection
-            day2_15m = df_15m[df_15m['Datetime'].dt.date == day2_date].reset_index(drop=True)
-            if len(day2_15m) == 0:
-                continue
-            
-            # Determine trade direction: Compare 15:50 close with HA close
+            # *** DETERMINE TRADE DIRECTION at 15:55 on Day 1 ***
             if day_close_1550 > ha_close:
                 direction = "bull"
                 price_main_trade = int(day_close_1550) - self.config['trade_settings']['spread_points']
@@ -409,144 +405,195 @@ class CompleteHeikenAshiBacktester:
                 price_main_trade = int(day_close_1550) + self.config['trade_settings']['spread_points']
                 credit_main = self.config['trade_settings']['main_trade_credit']
             
-            # Find additional trades based on patterns in Day 2
+            print(f"📅 {day1_date}: {direction.upper()} signal (Close:{day_close_1550:.2f} vs HA:{ha_close:.2f})")
+            
+            # *** LOOK FOR ADDITIONAL TRADES on Day 2 based on Day 1's direction ***
             additional_trades = []
+            day2_15m = df_15m[df_15m['Datetime'].dt.date == day2_date].reset_index(drop=True)
             
-            if direction == "bull":
-                # Look for Red-Red-Green pattern in 15min candles
-                pattern_indices = self.find_candle_pattern(day2_15m, "bull")
-                for idx in pattern_indices:
-                    green_candle = day2_15m.iloc[idx]
-                    additional_strike = int(green_candle['Close']) - self.config['trade_settings']['spread_points']
-                    additional_trades.append({
-                        'type': 'additional_1',
-                        'strike': additional_strike,
-                        'credit': self.config['trade_settings']['additional_trade_1_credit'],
-                        'candle_time': green_candle['Datetime'].time()
-                    })
-                    
-                    # Check for additional_2 based on gap condition
-                    prev_day_low = day1_data['Day_Low']
-                    if day2_15m.iloc[0]['Open'] > prev_day_low:
-                        additional_trades.append({
-                            'type': 'additional_2',
-                            'strike': additional_strike,
-                            'credit': self.config['trade_settings']['additional_trade_2_credit'],
-                            'candle_time': green_candle['Datetime'].time()
-                        })
-                    break  # Take first pattern only
-            
-            else:  # bear
-                # Look for Green-Green-Red pattern in 15min candles
-                pattern_indices = self.find_candle_pattern(day2_15m, "bear")
-                for idx in pattern_indices:
-                    red_candle = day2_15m.iloc[idx]
-                    additional_strike = int(red_candle['Close']) + self.config['trade_settings']['spread_points']
-                    additional_trades.append({
-                        'type': 'additional_1',
-                        'strike': additional_strike,
-                        'credit': self.config['trade_settings']['additional_trade_1_credit'],
-                        'candle_time': red_candle['Datetime'].time()
-                    })
-                    
-                    # Check for additional_2 based on gap condition
-                    prev_day_high = day1_data['Day_High']
-                    if day2_15m.iloc[0]['Open'] < prev_day_high:
-                        additional_trades.append({
-                            'type': 'additional_2',
-                            'strike': additional_strike,
-                            'credit': self.config['trade_settings']['additional_trade_2_credit'],
-                            'candle_time': red_candle['Datetime'].time()
-                        })
-                    break  # Take first pattern only
-            
-            # Evaluate trades at Day 2 close
-            day2_close = day2_15m.iloc[-1]['Close']
-            
-            # Main trade evaluation
-            if direction == "bull":
-                profit_main = (credit_main * trade_qty) if day2_close > price_main_trade else ((day2_close - price_main_trade) * trade_qty)
-            else:
-                profit_main = (credit_main * trade_qty) if day2_close < price_main_trade else ((price_main_trade - day2_close) * trade_qty)
-            
-            # Subtract commission
-            profit_main -= (self.config['backtest_settings']['commission_per_trade'] * 2)
-            win_main = profit_main > 0
-            
-            # Record main trade
-            self.trades.append({
-                'Trade_Date': day1_date,
-                'Direction': direction,
-                'Type': 'main',
-                'Strike': price_main_trade,
-                'Open_Time': '15:55',
-                'Close_Time': 'next_day_close',
-                'Quantity': trade_qty,
-                'Credit': credit_main,
-                'Close_1550': round(day_close_1550, 2),  # 5min 15:50 close
-                'HA_Close': round(ha_close, 2),          # HA close from daily OHLC
-                'Close_HA_Diff': round(day_close_1550 - ha_close, 2),
-                'MACD_Diff': round(macd_diff, 4),
-                'Day2_Close': round(day2_close, 2),
-                'Profit_Loss': round(profit_main, 2),
-                'Label': 'Profit' if win_main else 'Loss'
-            })
-            
-            account_value += profit_main
-            total_count += 1
-            if win_main:
-                win_count += 1
-            
-            # Additional trades evaluation
-            for trade in additional_trades:
+            if len(day2_15m) > 0:
                 if direction == "bull":
-                    profit_add = (trade['credit'] * trade_qty) if day2_close > trade['strike'] else ((day2_close - trade['strike']) * trade_qty)
+                    # Day 1 was BULL, look for Red-Red-Green pattern on Day 2
+                    pattern_indices = self.find_candle_pattern(day2_15m, "bull")
+                    print(f"   🔍 Looking for Red-Red-Green pattern on {day2_date}: Found {len(pattern_indices)} patterns")
+                    
+                    if pattern_indices:
+                        for idx in pattern_indices:
+                            if direction == "bull":
+                                green_candle = day2_15m.iloc[idx]
+                                additional_strike = int(green_candle['Close']) - self.config['trade_settings']['spread_points']
+                                pattern_time = green_candle['Datetime'].time()
+                                
+                                # Additional trade 1 - Execute immediately when pattern is found
+                                additional_trades.append({
+                                    'type': 'additional_1',
+                                    'strike': additional_strike,
+                                    'credit': self.config['trade_settings']['additional_trade_1_credit'],
+                                    'candle_time': pattern_time,  # Execute at pattern candle time
+                                    'pattern_candle': 'green',
+                                    'direction': direction,
+                                    'trade_date': day2_date
+                                })
+                                
+                                # Additional trade 2: Check gap condition and execute 15 minutes later
+                                prev_day_low = day1_data['Day_Low']
+                                day2_open = day2_15m.iloc[0]['Open']
+                                if day2_open > prev_day_low:  # No gap down
+                                    # Calculate time 15 minutes after pattern
+                                    pattern_datetime = green_candle['Datetime']
+                                    trade2_datetime = pattern_datetime + timedelta(minutes=15)
+                                    trade2_time = trade2_datetime.time()
+                                    
+                                    additional_trades.append({
+                                        'type': 'additional_2',
+                                        'strike': additional_strike,
+                                        'credit': self.config['trade_settings']['additional_trade_2_credit'],
+                                        'candle_time': trade2_time,  # Execute 15 minutes later
+                                        'pattern_candle': 'green',
+                                        'direction': direction,
+                                        'trade_date': day2_date
+                                    })
+                            
+                            elif direction == "bear":
+                                red_candle = day2_15m.iloc[idx]
+                                additional_strike = int(red_candle['Close']) + self.config['trade_settings']['spread_points']
+                                pattern_time = red_candle['Datetime'].time()
+                                
+                                # Additional trade 1 - Execute immediately when pattern is found
+                                additional_trades.append({
+                                    'type': 'additional_1',
+                                    'strike': additional_strike,
+                                    'credit': self.config['trade_settings']['additional_trade_1_credit'],
+                                    'candle_time': pattern_time,  # Execute at pattern candle time
+                                    'pattern_candle': 'red',
+                                    'direction': direction,
+                                    'trade_date': day2_date
+                                })
+                                
+                                # Additional trade 2: Check gap condition and execute 15 minutes later
+                                prev_day_high = day1_data['Day_High']
+                                day2_open = day2_15m.iloc[0]['Open']
+                                if day2_open < prev_day_high:  # No gap up
+                                    # Calculate time 15 minutes after pattern
+                                    pattern_datetime = red_candle['Datetime']
+                                    trade2_datetime = pattern_datetime + timedelta(minutes=15)
+                                    trade2_time = trade2_datetime.time()
+                                    
+                                    additional_trades.append({
+                                        'type': 'additional_2',
+                                        'strike': additional_strike,
+                                        'credit': self.config['trade_settings']['additional_trade_2_credit'],
+                                        'candle_time': trade2_time,  # Execute 15 minutes later
+                                        'pattern_candle': 'red',
+                                        'direction': direction,
+                                        'trade_date': day2_date
+                                    })
+                            
+                            break  # Take first pattern only
+                
+                if additional_trades:
+                    print(f"   🎯 Found {len(additional_trades)} additional {direction} trades on {day2_date}")
+            
+            # *** EVALUATE ALL TRADES at Day 2 close ***
+            if len(day2_15m) > 0:
+                day2_close = day2_15m.iloc[-1]['Close']
+                
+                # *** MAIN TRADE EVALUATION ***
+                if direction == "bull":
+                    profit_main = (credit_main * trade_qty) if day2_close > price_main_trade else ((day2_close - price_main_trade) * trade_qty)
                 else:
-                    profit_add = (trade['credit'] * trade_qty) if day2_close < trade['strike'] else ((trade['strike'] - day2_close) * trade_qty)
+                    profit_main = (credit_main * trade_qty) if day2_close < price_main_trade else ((price_main_trade - day2_close) * trade_qty)
                 
-                profit_add -= (self.config['backtest_settings']['commission_per_trade'] * 2)
-                win_add = profit_add > 0
+                # Subtract commission
+                profit_main -= (self.config['backtest_settings']['commission_per_trade'] * 2)
+                win_main = profit_main > 0
                 
+                # Record main trade (opened on Day 1)
                 self.trades.append({
-                    'Trade_Date': day1_date,
+                    'Trade_Date': day1_date,  # Main trade opens on Day 1
                     'Direction': direction,
-                    'Type': trade['type'],
-                    'Strike': trade['strike'],
-                    'Open_Time': str(trade['candle_time']),
+                    'Type': 'main',
+                    'Strike': price_main_trade,
+                    'Open_Time': '15:55',
                     'Close_Time': 'next_day_close',
                     'Quantity': trade_qty,
-                    'Credit': trade['credit'],
+                    'Credit': credit_main,
                     'Close_1550': round(day_close_1550, 2),
                     'HA_Close': round(ha_close, 2),
                     'Close_HA_Diff': round(day_close_1550 - ha_close, 2),
                     'MACD_Diff': round(macd_diff, 4),
                     'Day2_Close': round(day2_close, 2),
-                    'Profit_Loss': round(profit_add, 2),
-                    'Label': 'Profit' if win_add else 'Loss'
+                    'Profit_Loss': round(profit_main, 2),
+                    'Label': 'Profit' if win_main else 'Loss'
                 })
                 
-                account_value += profit_add
+                account_value += profit_main
                 total_count += 1
-                if win_add:
+                if win_main:
                     win_count += 1
-            
-            # Check for quantity increment every 2 weeks
-            if total_count >= self.config['trade_settings']['win_rate_window']:
-                recent_trades = self.trades[-self.config['trade_settings']['win_rate_window']:]
-                recent_win_rate = sum(1 for t in recent_trades if t['Label'] == 'Profit') / len(recent_trades)
                 
-                if recent_win_rate >= self.config['trade_settings']['win_rate_threshold']:
-                    trade_qty += self.config['trade_settings']['increment_qty']
-                    print(f"📈 Increased quantity to {trade_qty} (Win rate: {recent_win_rate:.1%})")
-            
-            # Record daily equity
-            self.daily_equity.append({
-                'Date': day1_date,
-                'Account_Value': round(account_value, 2),
-                'Daily_PnL': round(sum(t['Profit_Loss'] for t in self.trades if t['Trade_Date'] == day1_date), 2),
-                'Cumulative_Trades': len(self.trades)
-            })
+                # *** ADDITIONAL TRADES EVALUATION ***
+                for trade in additional_trades:
+                    trade_direction = trade['direction']
+                    
+                    # Get Day 3 close for additional trades (they close next day after opening)
+                    if i < len(ha_daily) - 2:  # Make sure we have Day 3 data
+                        day3_date = ha_daily.iloc[i + 2]['Date']
+                        day3_15m = df_15m[df_15m['Datetime'].dt.date == day3_date].reset_index(drop=True)
+                        
+                        if len(day3_15m) > 0:
+                            day3_close = day3_15m.iloc[-1]['Close']
+                            
+                            if trade_direction == "bull":
+                                profit_add = (trade['credit'] * trade_qty) if day3_close > trade['strike'] else ((day3_close - trade['strike']) * trade_qty)
+                            else:
+                                profit_add = (trade['credit'] * trade_qty) if day3_close < trade['strike'] else ((trade['strike'] - day3_close) * trade_qty)
+                            
+
+                            profit_add -= (self.config['backtest_settings']['commission_per_trade'] * 2)
+                            win_add = profit_add > 0
+                            
+                            self.trades.append({
+                                'Trade_Date': trade['trade_date'],  # Additional trades open on Day 2
+                                'Direction': trade_direction,
+                                'Type': trade['type'],
+                                'Strike': trade['strike'],
+                                'Open_Time': str(trade['candle_time']),
+                                'Close_Time': 'next_day_close',
+                                'Quantity': trade_qty,
+                                'Credit': trade['credit'],
+                                'Close_1550': round(day_close_1550, 2),  # Original Day 1 data for reference
+                                'HA_Close': round(ha_close, 2),
+                                'Close_HA_Diff': round(day_close_1550 - ha_close, 2),
+                                'MACD_Diff': round(macd_diff, 4),
+                                'Day2_Close': round(day3_close, 2),  # This is actually Day 3 close
+                                'Profit_Loss': round(profit_add, 2),
+                                'Label': 'Profit' if win_add else 'Loss',
+                                'Pattern_Candle': trade['pattern_candle']
+                            })
+                            
+                            account_value += profit_add
+                            total_count += 1
+                            if win_add:
+                                win_count += 1
         
+        # Check for quantity increment every 2 weeks
+        if total_count >= self.config['trade_settings']['win_rate_window']:
+            recent_trades = self.trades[-self.config['trade_settings']['win_rate_window']:]
+            recent_win_rate = sum(1 for t in recent_trades if t['Label'] == 'Profit') / len(recent_trades)
+            
+            if recent_win_rate >= self.config['trade_settings']['win_rate_threshold']:
+                trade_qty += self.config['trade_settings']['increment_qty']
+                print(f"📈 Increased quantity to {trade_qty} (Win rate: {recent_win_rate:.1%})")
+        
+        # Record daily equity
+        self.daily_equity.append({
+            'Date': day1_date,
+            'Account_Value': round(account_value, 2),
+            'Daily_PnL': round(sum(t['Profit_Loss'] for t in self.trades if t['Trade_Date'] == day1_date), 2),
+            'Cumulative_Trades': len(self.trades)
+        })
+    
         # Calculate final metrics
         self.calculate_performance_metrics(account_value)
         
