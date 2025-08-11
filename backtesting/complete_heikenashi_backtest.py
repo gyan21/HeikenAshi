@@ -417,79 +417,65 @@ class CompleteHeikenAshiBacktester:
                     pattern_indices = self.find_candle_pattern(day2_15m, "bull")
                     print(f"   🔍 Looking for Red-Red-Green pattern on {day2_date}: Found {len(pattern_indices)} patterns")
                     
-                    if pattern_indices:
-                        for idx in pattern_indices:
-                            if direction == "bull":
-                                green_candle = day2_15m.iloc[idx]
-                                additional_strike = int(green_candle['Close']) - self.config['trade_settings']['spread_points']
-                                pattern_time = green_candle['Datetime'].time()
+                if pattern_indices:
+                    for idx in pattern_indices:
+                        if direction == "bull":
+                            green_candle = day2_15m.iloc[idx]
+                            additional_strike = int(green_candle['Close']) - self.config['trade_settings']['spread_points']
+                            pattern_time = green_candle['Datetime'].time()
+                            
+                            # Check gap condition first
+                            prev_day_low = day1_data['Day_Low']
+                            day2_open = day2_15m.iloc[0]['Open']
+                            
+                            if day2_open > prev_day_low:  # No gap down
+                                # Only create ONE additional trade - execute 15 minutes after pattern
+                                pattern_datetime = green_candle['Datetime']
+                                trade_datetime = pattern_datetime + timedelta(minutes=15)
+                                trade_time = trade_datetime.time()
                                 
-                                # Additional trade 1 - Execute immediately when pattern is found
                                 additional_trades.append({
                                     'type': 'additional_1',
                                     'strike': additional_strike,
                                     'credit': self.config['trade_settings']['additional_trade_1_credit'],
-                                    'candle_time': pattern_time,  # Execute at pattern candle time
+                                    'candle_time': trade_time,  # Execute 15 minutes after pattern
                                     'pattern_candle': 'green',
                                     'direction': direction,
-                                    'trade_date': day2_date
+                                    'trade_date': day2_date,
+                                    'pattern_time': pattern_time  # For reference
                                 })
                                 
-                                # Additional trade 2: Check gap condition and execute 15 minutes later
-                                prev_day_low = day1_data['Day_Low']
-                                day2_open = day2_15m.iloc[0]['Open']
-                                if day2_open > prev_day_low:  # No gap down
-                                    # Calculate time 15 minutes after pattern
-                                    pattern_datetime = green_candle['Datetime']
-                                    trade2_datetime = pattern_datetime + timedelta(minutes=15)
-                                    trade2_time = trade2_datetime.time()
-                                    
-                                    additional_trades.append({
-                                        'type': 'additional_2',
-                                        'strike': additional_strike,
-                                        'credit': self.config['trade_settings']['additional_trade_2_credit'],
-                                        'candle_time': trade2_time,  # Execute 15 minutes later
-                                        'pattern_candle': 'green',
-                                        'direction': direction,
-                                        'trade_date': day2_date
-                                    })
+                                print(f"   🎯 Added bull trade at {trade_time} (15min after {pattern_time} RRG pattern)")
+                        
+                        elif direction == "bear":
+                            red_candle = day2_15m.iloc[idx]
+                            additional_strike = int(red_candle['Close']) + self.config['trade_settings']['spread_points']
+                            pattern_time = red_candle['Datetime'].time()
                             
-                            elif direction == "bear":
-                                red_candle = day2_15m.iloc[idx]
-                                additional_strike = int(red_candle['Close']) + self.config['trade_settings']['spread_points']
-                                pattern_time = red_candle['Datetime'].time()
+                            # Check gap condition first
+                            prev_day_high = day1_data['Day_High']
+                            day2_open = day2_15m.iloc[0]['Open']
+                            
+                            if day2_open < prev_day_high:  # No gap up
+                                # Only create ONE additional trade - execute 15 minutes after pattern
+                                pattern_datetime = red_candle['Datetime']
+                                trade_datetime = pattern_datetime + timedelta(minutes=15)
+                                trade_time = trade_datetime.time()
                                 
-                                # Additional trade 1 - Execute immediately when pattern is found
                                 additional_trades.append({
                                     'type': 'additional_1',
                                     'strike': additional_strike,
                                     'credit': self.config['trade_settings']['additional_trade_1_credit'],
-                                    'candle_time': pattern_time,  # Execute at pattern candle time
+                                    'candle_time': trade_time,  # Execute 15 minutes after pattern
                                     'pattern_candle': 'red',
                                     'direction': direction,
-                                    'trade_date': day2_date
+                                    'trade_date': day2_date,
+                                    'pattern_time': pattern_time  # For reference
                                 })
                                 
-                                # Additional trade 2: Check gap condition and execute 15 minutes later
-                                prev_day_high = day1_data['Day_High']
-                                day2_open = day2_15m.iloc[0]['Open']
-                                if day2_open < prev_day_high:  # No gap up
-                                    # Calculate time 15 minutes after pattern
-                                    pattern_datetime = red_candle['Datetime']
-                                    trade2_datetime = pattern_datetime + timedelta(minutes=15)
-                                    trade2_time = trade2_datetime.time()
-                                    
-                                    additional_trades.append({
-                                        'type': 'additional_2',
-                                        'strike': additional_strike,
-                                        'credit': self.config['trade_settings']['additional_trade_2_credit'],
-                                        'candle_time': trade2_time,  # Execute 15 minutes later
-                                        'pattern_candle': 'red',
-                                        'direction': direction,
-                                        'trade_date': day2_date
-                                    })
-                            
-                            break  # Take first pattern only
+                                print(f"   🎯 Added bear trade at {trade_time} (15min after {pattern_time} GGR pattern)")
+                        
+                        break  # Take first pattern only
                 
                 if additional_trades:
                     print(f"   🎯 Found {len(additional_trades)} additional {direction} trades on {day2_date}")

@@ -119,7 +119,7 @@ async def run_additional_opportunities_scanner(ib, symbol):
         if result:
             print("✅ Additional trade opportunity executed")
         else:
-            print("ℹ️ No additional opportunities found")
+            print("ℹ️ No additional opportunities found at - " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     except Exception as e:
         print(f"Error scanning additional opportunities: {e}")
 
