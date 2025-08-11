@@ -1,0 +1,31 @@
+{
+    "data_settings": {
+        "symbol": "SPY",
+        "exchange": "ARCA",
+        "currency": "USD",
+        "days_to_fetch": 30,
+        "ibkr_host": "127.0.0.1",
+        "ibkr_port": 7497,
+        "client_id": 1
+    },
+    "backtest_settings": {
+        "initial_capital": 100000,
+        "commission_per_trade": 2.0
+    },
+    "trade_settings": {
+        "main_trade_qty": 30,
+        "main_trade_credit": 45,
+        "additional_trade_qty": 30,
+        "additional_trade_1_credit": 45,
+        "additional_trade_2_credit": 25,
+        "spread_points": 3,
+        "increment_qty": 10,
+        "win_rate_window": 10,
+        "win_rate_threshold": 0.7
+    },
+    "output_settings": {
+        "excel_file": "results/trade_log.xlsx",
+        "csv_15m": "data/spy_15m.csv",
+        "csv_5m": "data/spy_5m.csv"
+    }
+}

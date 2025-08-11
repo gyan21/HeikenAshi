@@ -62,7 +62,7 @@
     },
     "logging_settings": {
         "excel_log_path": "logs/trade_log.xlsx",
-        "debug_mode": true,
+        "debug_mode": false,
         "log_level": "INFO"
     },
     "ibkr_settings": {

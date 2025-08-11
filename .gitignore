@@ -10,11 +10,8 @@ utils/__pycache__/trade_utils.cpython-313.pyc
 test_bull_put_spread.py
 test_bull_put_spread.py
 analysis_report.xlsx
-trade_log.json
-open_trades.json
 trade_log.xlsx
 .vs/slnx.sqlite
-.vs/ProjectSettings.json
 .vs/HeikenAshi_1/FileContentIndex/2f477327-887c-42ab-8a97-fb52d117e9d4.vsidx
 .vs/HeikenAshi_1/CopilotIndices/17.13.441.19478/SemanticSymbols.db-wal
 .vs/HeikenAshi_1/CopilotIndices/17.13.441.19478/SemanticSymbols.db-shm
@@ -30,10 +27,11 @@ trade_log.xlsx
 config/__pycache__/settings.cpython-313.pyc
 utils/__pycache__/delta_option_finder.cpython-313.pyc
 utils/__pycache__/trade_executor.cpython-313.pyc
-.vs/VSWorkspaceState.json
 .vs/HeikenAshi_1/v17/.wsuo
-.vs/HeikenAshi_1/v17/DocumentLayout.json
 config/__pycache__/settings.cpython-313.pyc
 utils/__pycache__/additional_trades.cpython-313.pyc
 utils/__pycache__/delta_option_finder.cpython-313.pyc
 utils/__pycache__/trade_executor.cpython-313.pyc
+*.csv
+*.pyc
+*.pyc
